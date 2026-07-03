@@ -391,8 +391,9 @@ for tool in $tools; do
         [[ "$PASS_WAS_AUTO" == true ]] && info "Gateway token set (auto-generated — see .env)" || info "Gateway token set"
       fi
       info "OpenClaw configured"
+      _openclaw_onboarded=false
       if gum confirm "Run 'make openclaw-onboard' now?" --default=true; then
-        make --no-print-directory openclaw-onboard
+        make --no-print-directory openclaw-onboard && _openclaw_onboarded=true
       else
         note "Run it later: make openclaw-onboard"
       fi
@@ -595,8 +596,10 @@ for tool in $tools; do
       ;;
     openclaw)
       echo >&2
-      warn "First run needs onboarding. Running 'make openclaw-onboard'…"
-      gum spin --spinner line --title "Running OpenClaw onboarding…" -- make openclaw-onboard 2>&1 | tail -5
+      if [[ "${_openclaw_onboarded:-false}" != true ]]; then
+        warn "First run needs onboarding. Running 'make openclaw-onboard'…"
+        gum spin --spinner line --title "Running OpenClaw onboarding…" -- make openclaw-onboard 2>&1 | tail -5
+      fi
       gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3
       echo >&2
       if gum confirm "Open OpenClaw Control UI to configure channel auth (WhatsApp/Telegram/Discord)?"; then
