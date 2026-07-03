@@ -508,7 +508,7 @@ done
 if echo "$tools" | grep -qE '(^|[[:space:]])(ollama|lmstudio|llamacpp)($|[[:space:]])' && \
    echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
   echo >&2
-  bash scripts/configure-local-providers.sh
+  bash bin/configure-local-providers
 fi
 
 echo >&2
