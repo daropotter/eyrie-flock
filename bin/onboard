@@ -319,7 +319,7 @@ for tool in $tools; do
       [[ -n "${_CFG_KEYS[OPENAI_API_KEY]:-}" ]] && info "Will use shared OPENAI_API_KEY"
       echo >&2
 
-      pub_url=$(gum input --header "Public URL for auth/callbacks (empty for default, e.g. https://board.example.com)" || true)
+      pub_url=$(gum input --header "Public URL for auth/callbacks (empty for default, e.g. https://board.example.com)" --value "$(get_env PAPERCLIP_PUBLIC_URL)" || true)
       if [[ -n "$pub_url" ]]; then
         set_env PAPERCLIP_PUBLIC_URL "$pub_url"
         echo "  → Public URL: $pub_url" >&2
