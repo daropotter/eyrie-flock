@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DIR="${EYRIE_DIR:-$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)}"
+COMPOSE_OC=(docker compose --project-directory "$DIR" -f "$DIR/docker/docker-compose.opencode.yml")
+
+COMPOSE_AGENTS=(docker compose --project-directory "$DIR" -f "$DIR/docker/docker-compose.opencode.yml" -f "$DIR/docker/docker-compose.agents.yml")
+# colours -- using tput for portability
+if command -v tput &>/dev/null; then
+  g=$(tput setaf 2)   y=$(tput setaf 3)   c=$(tput setaf 6)
+  r=$(tput setaf 1)   b=$(tput bold)       n=$(tput sgr0)
+else
+  g= y= c= r= b= n=
+fi
+
+info()  { echo "${g}*${n} $*" >&2; }
+warn()  { echo "${y}*${n} $*" >&2; }
+error() { echo "${r}*${n} $*" >&2; }
+header(){ echo >&2; echo "${b}-- $* --${n}" >&2; echo >&2; }
+
+running() {
+  local ref="$1" svc="$2"
+  case "$ref" in
+    COMPOSE_OC)     "${COMPOSE_OC[@]}"     ps --status running --services 2>/dev/null | grep -qxF "$svc" ;;
+    COMPOSE_AGENTS) "${COMPOSE_AGENTS[@]}" ps --status running --services 2>/dev/null | grep -qxF "$svc" ;;
+  esac
+}
+
+service_exists() {
+  local ref="$1" svc="$2"
+  case "$ref" in
+    COMPOSE_OC)     "${COMPOSE_OC[@]}"     config --services 2>/dev/null | grep -qxF "$svc" ;;
+    COMPOSE_AGENTS) "${COMPOSE_AGENTS[@]}" config --services 2>/dev/null | grep -qxF "$svc" ;;
+  esac
+}
+
+auth_opencode() {
+  header "opencode -- OAuth login"
+  if ! running COMPOSE_OC opencode; then
+    warn "opencode is not running -- start it with: make up"
+    return 1
+  fi
+  info "Running: opencode auth login (subscription providers)"
+  "${COMPOSE_OC[@]}" exec -it opencode opencode auth login
+  info "opencode auth done"
+}
+
+auth_claude_code() {
+  header "Claude Code -- OAuth login"
+  if ! service_exists COMPOSE_AGENTS claude-code; then
+    warn "Claude Code is not available -- build it with: make build-agents"
+    return 1
+  fi
+  info "Running: claude login"
+  "${COMPOSE_AGENTS[@]}" run --rm -it claude-code claude login
+  info "Claude Code auth done"
+}
+
+auth_paperclip() {
+  header "Paperclip -- OAuth / Auth"
+  if ! running COMPOSE_OC paperclip; then
+    warn "Paperclip is not running -- start it with: make up-paperclip"
+    return 1
+  fi
+  local port bind
+  port=$(grep -E '^PAPERCLIP_PORT=' "$DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 3100)
+  bind=$(grep -E '^BIND_ADDR=' "$DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo "127.0.0.1")
+  [[ "$bind" == "127.0.0.1" ]] && bind="localhost"
+  info "Open the Paperclip board and sign in / configure OAuth:"
+  echo "    ${c}http://${bind}:${port}${n}" >&2
+}
+
+auth_openclaw() {
+  header "OpenClaw -- OAuth / Auth"
+  if ! running COMPOSE_OC openclaw; then
+    warn "OpenClaw is not running -- start it with: make up-openclaw"
+    return 1
+  fi
+  local port bind
+  port=$(grep -E '^OPENCLAW_GATEWAY_PORT=' "$DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 18789)
+  bind=$(grep -E '^BIND_ADDR=' "$DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo "127.0.0.1")
+  [[ "$bind" == "127.0.0.1" ]] && bind="localhost"
+  info "Open the Control UI and configure channel auth (WhatsApp/Telegram/Discord):"
+  echo "    ${c}http://${bind}:${port}${n}" >&2
+}
+
+auth_hermes() {
+  header "Hermes Agent -- Auth"
+  if ! running COMPOSE_OC hermes; then
+    warn "Hermes is not running -- start it with: make up-hermes"
+    return 1
+  fi
+  local port bind
+  port=$(grep -E '^HERMES_PORT=' "$DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 8642)
+  bind=$(grep -E '^BIND_ADDR=' "$DIR/.env" 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo "127.0.0.1")
+  [[ "$bind" == "127.0.0.1" ]] && bind="localhost"
+  info "Open the Hermes dashboard and configure auth:"
+  echo "    ${c}http://${bind}:${port}${n}" >&2
+}
+
+TOOL="${1:-all}"
+
+case "$TOOL" in
+  all)
+    auth_opencode || true
+    auth_claude_code || true
+    auth_paperclip || true
+    auth_openclaw || true
+    auth_hermes || true
+    echo >&2
+    info "All auth flows complete."
+    ;;
+  opencode|oc)
+    auth_opencode
+    ;;
+  claude-code|claude|code|cc)
+    auth_claude_code
+    ;;
+  paperclip|pap)
+    auth_paperclip
+    ;;
+  openclaw|claw)
+    auth_openclaw
+    ;;
+  hermes|her)
+    auth_hermes
+    ;;
+  help|--help|-h)
+    echo "Usage: ./bin/auth [tool]"
+    echo ""
+    echo "Tools:"
+    echo "  all (default)   Run auth for all tools"
+    echo "  opencode        opencode subscription providers"
+    echo "  claude-code     Claude Code login"
+    echo "  paperclip       Paperclip board auth (web UI)"
+    echo "  openclaw        OpenClaw Control UI auth (web UI)"
+    echo "  hermes          Hermes dashboard auth (web UI)"
+    ;;
+  *)
+    error "Unknown tool: $TOOL"
+    echo "Run: ./bin/auth help"
+    exit 1
+    ;;
+esac

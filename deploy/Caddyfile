@@ -3,9 +3,21 @@
 	email {$ACME_EMAIL}
 }
 
-# Caddy obtains + auto-renews a Let's Encrypt cert for this domain and proxies
-# to the opencode container over the internal compose network. opencode still
-# enforces its own basic auth (OPENCODE_SERVER_PASSWORD).
+# Caddy obtains + auto-renews a Let's Encrypt cert for the domain and proxies
+# to each tool over the internal compose network. Each tool still enforces its
+# own auth (e.g. OPENCODE_SERVER_PASSWORD, PAPERCLIP_AUTH_SECRET, …).
 {$OPENCODE_DOMAIN} {
 	reverse_proxy opencode:4096
+}
+
+paperclip.{$OPENCODE_DOMAIN} {
+	reverse_proxy paperclip:3100
+}
+
+hermes.{$OPENCODE_DOMAIN} {
+	reverse_proxy hermes:8642
+}
+
+openclaw.{$OPENCODE_DOMAIN} {
+	reverse_proxy openclaw:18789
 }

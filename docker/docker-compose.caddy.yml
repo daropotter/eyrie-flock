@@ -1,7 +1,8 @@
 # Adds a Caddy reverse proxy with automatic HTTPS (ACME / Let's Encrypt) in front
-# of opencode. Use together with the base file:
+# of opencode. Requires opencode to be running alongside:
 #
-#   docker compose -f docker-compose.opencode.yml -f docker-compose.caddy.yml up -d
+#   docker compose -f docker-compose.opencode.yml \
+#                  -f docker-compose.caddy.yml up -d
 #   (or: make up-tls)
 #
 # Requirements:
@@ -24,9 +25,15 @@ services:
       OPENCODE_DOMAIN: ${OPENCODE_DOMAIN:?set OPENCODE_DOMAIN in .env}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ../deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+
+# When Paperclip is also behind Caddy, tell it its public URL so OAuth callbacks
+# and invite flows resolve correctly.
+  paperclip:
+    environment:
+      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-https://paperclip.${OPENCODE_DOMAIN}}
 
 volumes:
   caddy_data:

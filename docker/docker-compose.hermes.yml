@@ -1,0 +1,62 @@
+# Adds Hermes Agent (https://github.com/NousResearch/hermes-agent) — an open-source
+# self-improving AI agent with persistent memory, skills, multi-platform messaging,
+# and a web dashboard. Run standalone or alongside other tools:
+#
+#   docker compose -f docker-compose.hermes.yml up -d
+#   docker compose -f docker-compose.hermes.yml \
+#                  -f docker-compose.opencode.yml up -d          # + opencode
+#   (or: make up-hermes)
+#
+# How it hooks in:
+#   * The `hermes` service runs the gateway + web dashboard on port 8642.
+#   * Shares the compose network (eyrie-flock), so it can reach opencode at
+#     http://opencode:4096 and Headroom at http://headroom:8787 when those
+#     services are also running.
+#   * State (config, memory, sessions, skills) persists in a named volume.
+#
+# Notes:
+#   * The dashboard is bound to BIND_ADDR (127.0.0.1 by default). Front it with
+#     a reverse proxy + TLS before exposing it beyond localhost.
+#   * Provider keys are reused from the same .env vars opencode uses.
+#   * Set HERMES_AUTH_TOKEN to a random string to protect the gateway API.
+name: eyrie-flock
+
+services:
+  hermes:
+    image: ghcr.io/nousresearch/hermes-agent:${HERMES_VERSION:-latest}
+    container_name: eyrie-hermes
+    restart: unless-stopped
+
+    command: ["gateway", "run"]
+
+    environment:
+      # Gateway auth — set HERMES_AUTH_TOKEN in .env for API security.
+      HERMES_AUTH_TOKEN: ${HERMES_AUTH_TOKEN:-}
+      # Provider keys — reuse the ones opencode already has in .env.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      # Headroom proxy: set HEADROOM_ENABLED=1 to route through http://headroom:8787.
+      ANTHROPIC_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787}
+      OPENAI_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787/v1}
+
+    volumes:
+      # Persist config, memory, sessions, skills across restarts.
+      - hermes_data:/home/node/.hermes
+
+    ports:
+      # Gateway + web dashboard. Bound to BIND_ADDR (localhost by default).
+      - "${BIND_ADDR:-127.0.0.1}:${HERMES_PORT:-8642}:8642"
+
+volumes:
+  hermes_data:

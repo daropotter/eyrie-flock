@@ -1,0 +1,37 @@
+# llama.cpp server — included only when LOCAL_LLAMACPP_ENABLED=1 (see Makefile).
+# Requires LLAMACPP_MODEL (a .gguf filename under ./models/).
+name: eyrie-flock
+
+services:
+  llamacpp:
+    image: ghcr.io/ggml-org/llama.cpp:${LLAMACPP_IMAGE_TAG:-server}
+    container_name: eyrie-llamacpp
+    profiles: ["llamacpp"]
+    restart: unless-stopped
+
+    command:
+      - -m
+      - /models/${LLAMACPP_MODEL:?Set LLAMACPP_MODEL in .env to a .gguf file under ./models/}
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8080"
+
+    volumes:
+      - ../models:/models:ro
+
+    ports:
+      - "127.0.0.1:${LLAMACPP_PORT:-8080}:8080"
+
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  opencode:
+    depends_on:
+      llamacpp:
+        condition: service_healthy
+        required: false

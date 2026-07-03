@@ -1,0 +1,44 @@
+# eyrie-flock — agent-CLI image (Claude Code, Cursor Agent, …)
+#
+# Builds a lightweight container with pre-installed AI coding CLIs:
+#   * Claude Code  (npm: @anthropic-ai/claude-code) — Anthropic's coding agent
+#   * Cursor Agent (agent) — Cursor's headless CLI agent
+#
+# Used by docker-compose.agents.yml (profile: cli) for on-demand invocations:
+#   docker compose run --rm claude-code <args>
+#   docker compose run --rm cursor-agent <args>
+#   (or: make claude-code / make cursor-agent)
+FROM node:22-bookworm-slim
+
+ARG PUID=1000
+ARG PGID=1000
+
+# System deps for Cursor CLI install.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
+    curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Claude Code CLI globally.
+RUN npm install -g @anthropic-ai/claude-code${CLAUDECODE_VERSION:+@${CLAUDECODE_VERSION}} && \
+    npm cache clean --force
+
+# Install Cursor Agent and make it available system-wide.
+# The installer bundles its own Node.js + modules in a versioned directory.
+# We move the whole bundle to /opt/cursor-agent so the `node` user can read it.
+RUN curl -sS https://cursor.com/install | bash && \
+    mv /root/.local/share/cursor-agent/versions/*/ /opt/cursor-agent/ && \
+    chmod -R a+rX /opt/cursor-agent/ && \
+    ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/agent && \
+    ln -sf /opt/cursor-agent/cursor-agent /usr/local/bin/cursor-agent
+
+# Create a non-root node user with the requested UID/GID.
+RUN groupmod -g ${PGID} node 2>/dev/null; \
+    usermod -u ${PUID} -g ${PGID} node 2>/dev/null; \
+    mkdir -p /projects /home/node /home/node/.cursor-agent && \
+    chown -R node:node /projects /home/node
+
+WORKDIR /projects
+USER node
+
+# Default entrypoint (claude-code service uses this; cursor-agent overrides).
+ENTRYPOINT ["claude"]

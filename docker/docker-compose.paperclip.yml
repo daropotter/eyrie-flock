@@ -1,9 +1,11 @@
 # Adds Paperclip (https://github.com/paperclipai/paperclip) — the AI-agent
-# control plane / task board — alongside opencode. Use together with the base
-# file:
+# control plane / task board — on the eyrie-flock network. Run standalone or
+# alongside opencode:
 #
-#   docker compose -f docker-compose.opencode.yml -f docker-compose.paperclip.yml up -d
-#   (or: make up-paperclip)
+#   docker compose -f docker-compose.paperclip.yml up -d
+#   docker compose -f docker-compose.paperclip.yml \
+#                  -f docker-compose.opencode.yml up -d           # + opencode
+#   (or use the Makefile: `make up-paperclip`, `make up-all`, …)
 #
 # What it is:
 #   * A self-hosted control plane where agents pick up tasks (issues), run in
@@ -13,8 +15,9 @@
 #   * Runs the server on port 3100 and serves its web board at "/".
 #
 # How it hooks in:
-#   * Shares the compose network with opencode, so a Paperclip HTTP adapter can
-#     reach this repo's opencode server at http://opencode:4096.
+#   * Shares the compose network (eyrie-flock) with opencode and other tools,
+#     so a Paperclip HTTP adapter can reach opencode at http://opencode:4096
+#     when the opencode container is also running.
 #   * State (embedded SQLite DB, uploaded assets, local secrets key, agent
 #     workspace data) lives under PAPERCLIP_HOME and persists in a named volume.
 #
@@ -53,7 +56,7 @@ services:
       - paperclip_data:/paperclip
       # Dedicated SSH key for git operations (read-only). Reuses the same SSH_DIR
       # as opencode.
-      - ${SSH_DIR:-./ssh}:/home/node/.ssh:ro
+      - ${SSH_DIR:-../ssh}:/home/node/.ssh:ro
 
     ports:
       # Web board. Bound to BIND_ADDR (localhost by default) like opencode.

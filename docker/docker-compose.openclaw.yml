@@ -1,9 +1,11 @@
 # Adds OpenClaw (https://openclaw.ai) — the always-on AI-agent gateway that
 # connects agents to chat channels (WhatsApp, Telegram, Discord, Signal, …) and
-# dispatches agent sessions. Use together with the base file:
+# dispatches agent sessions. Run standalone or alongside other tools:
 #
-#   docker compose -f docker-compose.opencode.yml -f docker-compose.openclaw.yml up -d
-#   (or: make up-openclaw)
+#   docker compose -f docker-compose.openclaw.yml up -d openclaw
+#   docker compose -f docker-compose.openclaw.yml \
+#                  -f docker-compose.opencode.yml up -d          # + opencode
+#   (or: make up-openclaw, make up-all)
 #
 # First-time flow (run once, then `make up-openclaw`):
 #   make openclaw-onboard   # generates config + auth secret, sets bind/origins
@@ -12,8 +14,10 @@
 #   * The `openclaw` gateway serves its Control UI on port 18789 (bridge 18790),
 #     bound to BIND_ADDR (127.0.0.1 by default) like opencode.
 #   * State/config/workspace persist in named volumes.
-#   * host.docker.internal is mapped so bundled local-model providers can reach
-#     a host-side Ollama / LM Studio.
+#   * Local model servers (ollama / lmstudio / llamacpp) on the flock network
+#     are reachable at http://ollama:11434 etc. when docker-compose.local-models.yml
+#     is active (`make up-local-models`).
+#   * host.docker.internal is mapped for extra host-side tools.
 #   * `openclaw-cli` (profile: cli) is a post-start tool for onboarding and
 #     management; it shares the gateway's network namespace.
 #
@@ -52,7 +56,7 @@ services:
     volumes:
       - openclaw_home:/home/node/.openclaw
       - openclaw_secrets:/home/node/.config/openclaw
-      - ${SSH_DIR:-./ssh}:/home/node/.ssh:ro
+      - ${SSH_DIR:-../ssh}:/home/node/.ssh:ro
 
     cap_drop:
       - NET_RAW
@@ -101,7 +105,7 @@ services:
     volumes:
       - openclaw_home:/home/node/.openclaw
       - openclaw_secrets:/home/node/.config/openclaw
-      - ${SSH_DIR:-./ssh}:/home/node/.ssh:ro
+      - ${SSH_DIR:-../ssh}:/home/node/.ssh:ro
     stdin_open: true
     tty: true
     init: true

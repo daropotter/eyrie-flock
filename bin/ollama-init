@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Pull the default Ollama model once the main ollama service is healthy.
+set -euo pipefail
+
+model="${OLLAMA_PULL_MODEL:-}"
+if [[ -z "$model" ]]; then
+  echo "OLLAMA_PULL_MODEL not set — skipping model pull."
+  exit 0
+fi
+
+echo "Pulling Ollama model: ${model}"
+ollama pull "$model"
+echo "Done."

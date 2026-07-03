@@ -1,16 +1,17 @@
 # Adds Headroom (https://github.com/chopratejas/headroom) — a local context-
 # compression proxy — between opencode and the LLM providers, to cut token
-# usage (typically 40–95% fewer input tokens for the same answers). Use it
-# together with the base file:
+# usage (typically 40–95% fewer input tokens for the same answers). Requires
+# opencode to be running alongside:
 #
-#   docker compose -f docker-compose.opencode.yml -f docker-compose.headroom.yml up -d
+#   docker compose -f docker-compose.opencode.yml \
+#                  -f docker-compose.headroom.yml up -d
 #   (or: make up-headroom)
 #
 # How it hooks in:
 #   * The `headroom` service runs `headroom proxy` on port 8787.
 #   * opencode is pointed at the proxy via OPENCODE_CONFIG_CONTENT — an inline
 #     config layer that overrides the Anthropic/OpenAI provider baseURL ONLY
-#     while this overlay is active. Nothing in your persisted ./config changes.
+#     while this overlay is active. Nothing in the persisted config changes.
 #   * opencode reaches the proxy over the compose network at http://headroom:8787.
 #
 # Notes:

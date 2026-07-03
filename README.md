@@ -3,35 +3,48 @@
 A self-hostable, batteries-included **stack of AI-agent tools** that share one
 Docker network and work together. Drop it on a VPS (or your laptop) and pick the
 pieces you want — a coding agent with a web UI, a token-saving proxy, a task
-board where agents run in heartbeats, and an always-on gateway to chat channels.
+board where agents run in heartbeats, an always-on gateway to chat channels, or
+local model servers.
 
-Nothing is mandatory except the base tool. Each tool is a Compose overlay you
-layer on top; bring up any combination with a single `make` command.
+Each tool is an independent Compose file. Bring up any combination with a
+single `make` command. Nothing is mandatory — run one tool or all of them.
 
 ## What's in the flock
 
 | Tool | Role | Port | Start |
 |------|------|------|-------|
-| [**opencode**](https://opencode.ai) | AI coding agent — web UI + CLI, with persistence and attached projects | `4096` | `make up` |
+| [**Caddy**](https://caddyserver.com) | Reverse proxy with automatic HTTPS (Let's Encrypt) in front of other tools | `80/443` | `make up-tls` |
+| [**Claude Code**](https://docs.anthropic.com/en/docs/claude-code/overview) | Anthropic's AI coding CLI — run agentic commands from the terminal | _(CLI tool)_ | `make claude-code` |
+| [**Cursor Agent**](https://cursor.com/cli) | Cursor's headless agent CLI — plan, search, build from terminal or CI | _(CLI tool)_ | `make cursor-agent` |
 | [**Headroom**](https://github.com/chopratejas/headroom) | Local context-compression proxy in front of the LLM providers (40–95% fewer input tokens) | `8787` | `make up-headroom` |
-| [**Paperclip**](https://github.com/paperclipai/paperclip) | AI-agent control plane — a task board where agents pick up issues and run in heartbeats | `3100` | `make up-paperclip` |
+| [**Hermes Agent**](https://github.com/NousResearch/hermes-agent) | Self-improving AI agent with persistent memory, skills, and multi-platform messaging | `8642` | `make up-hermes` |
+| **Local models** | Ollama, LM Studio (llmster), llama.cpp — inference on the flock network | `11434` / `1234` / `8080` | `make up-local-models` |
 | [**OpenClaw**](https://openclaw.ai) | Always-on agent gateway — connects agents to chat channels (WhatsApp, Telegram, Discord, …) | `18789` | `make up-openclaw` |
-| **Caddy** | Reverse proxy with automatic HTTPS (Let's Encrypt) in front of opencode | `80/443` | `make up-tls` |
+| [**opencode**](https://opencode.ai) | AI coding agent — web UI + CLI, with persistence and attached projects | `4096` | `make up` |
+| [**Paperclip**](https://github.com/paperclipai/paperclip) | AI-agent control plane — a task board where agents pick up issues and run in heartbeats | `3100` | `make up-paperclip` |
 
 The whole flock at once (opencode + Paperclip + OpenClaw): **`make up-all`**.
 
+> **Codex** — bundled inside the [Paperclip](#paperclip) container along with `claude` and
+> `opencode` CLIs. Start Paperclip then run:
+> `docker compose exec paperclip codex`.
+
 > There's also a Cloudflare Containers deploy for opencode alone — see
-> [Deploying to Cloudflare](#deploying-opencode-to-cloudflare-containers).
+> [`cloudflare/`](cloudflare/) and [`cloudflare/README.md`](cloudflare/README.md).
 
 ## How the tools fit together
 
 Every tool runs in the same Compose project (**`eyrie-flock`**) on one shared
 network, so they reach each other by service name:
 
-- `opencode:4096` — the coding agent's HTTP server
+- `caddy:80` — the reverse proxy
 - `headroom:8787` — the compression proxy
-- `paperclip:3100` — the task board
+- `hermes:8642` — the self-improving agent
+- `ollama:11434` / `lmstudio:1234` / `llamacpp:8080` — local inference (when enabled)
 - `openclaw:18789` — the agent gateway
+- `opencode:4096` — the coding agent's HTTP server
+- `paperclip:3100` — the task board
+- `claude-code` / `cursor-agent` — run-once CLI containers (via `docker compose run`)
 
 Concretely, that means when you run them together:
 
@@ -40,7 +53,7 @@ Concretely, that means when you run them together:
   `claude` / `codex` CLIs their images ship with).
 - **opencode → Headroom**: opencode's Anthropic/OpenAI traffic is transparently
   routed through `http://headroom:8787` while the Headroom overlay is active.
-- **Ports** don't collide (4096 / 8787 / 3100 / 18789+18790 / 80+443) and are all
+- **Ports** don't collide (4096 / 8787 / 3100 / 8642 / 18789+18790 / 80+443) and are all
   bound to `BIND_ADDR` (localhost by default) except Caddy's public 80/443.
 
 Because they're one project, `make down` tears the whole flock down cleanly.
@@ -55,9 +68,8 @@ Because they're one project, `make down` tears the whole flock down cleanly.
 make setup          # creates .env and the config/ data/ projects/ directories
 # edit .env:
 #   - PUID/PGID = your `id -u` / `id -g`
-#   - OPENCODE_SERVER_PASSWORD = set a password (important for network access!)
-make build
-make up             # opencode starts in the background
+make build          # build the opencode image
+make up             # start opencode in the background
 make auth           # log in a provider / paste an API key (stored in ./data)
 ```
 
@@ -66,6 +78,163 @@ opencode's web UI is at `http://localhost:4096`. Basic-auth login: user
 
 Add more tools whenever you like — e.g. `make up-paperclip`, `make up-openclaw`,
 or everything with `make up-all`.
+
+---
+
+## Caddy — reverse proxy
+
+[Caddy](https://caddyserver.com) provides automatic HTTPS (Let's Encrypt) in
+front of opencode, Paperclip, Hermes, and OpenClaw. Requires a domain name.
+
+```bash
+make up-tls       # opencode behind Caddy
+make up-tls-all   # full stack behind Caddy
+```
+
+Tuning (`.env`): `OPENCODE_DOMAIN`, `ACME_EMAIL`.
+
+---
+
+## Claude Code — CLI agent
+
+[Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) is
+Anthropic's AI coding CLI. Use it from the terminal to run agentic commands on
+your projects.
+
+```bash
+make claude-code ARGS="refactor this file"
+```
+
+Shares the same `./projects` and `./ssh` volumes as opencode.
+
+---
+
+## Cursor Agent — CLI agent
+
+[Cursor Agent](https://cursor.com/cli) is Cursor's headless CLI for planning,
+searching, and building from the terminal.
+
+```bash
+make cursor-agent ARGS="-p -- 'add tests'"
+```
+
+Requires `CURSOR_API_KEY` in `.env` (get one at [cursor.com/settings](https://cursor.com/settings)).
+
+---
+
+## Headroom — token-saving proxy
+
+[Headroom](https://github.com/chopratejas/headroom) is a local context-compression
+proxy that sits between opencode and the LLM provider and shrinks everything the
+agent sends (tool outputs, files, logs, history) — typically **40–95% fewer input
+tokens for the same answers**. Everything stays on your machine.
+
+```bash
+make up-headroom
+```
+
+- The `headroom` service runs the proxy on port `8787`.
+- opencode is pointed at it via `OPENCODE_CONFIG_CONTENT` — an inline
+  config layer that overrides the Anthropic/OpenAI provider `baseURL` *only while the
+  overlay is active*. Your persisted `./config` is untouched.
+- Only the **anthropic** and **openai** providers are routed (auto-detected from
+  the request). Other providers talk to their APIs directly.
+
+Tuning (`.env`): `HEADROOM_MODE` (`optimize` default / `cache` / `audit` /
+`passthrough`), `HEADROOM_OUTPUT_SHAPER=1` (also trim output tokens),
+`HEADROOM_VERSION`. Stop it with `make down-headroom`.
+
+---
+
+## Hermes Agent — self-improving agent
+
+[Hermes Agent](https://github.com/NousResearch/hermes-agent) is an open-source
+self-improving AI agent with persistent memory, skills, multi-platform messaging,
+and a web dashboard.
+
+```bash
+make up-hermes     # standalone, no opencode required
+```
+
+- Serves its gateway + web dashboard on port `8642`.
+- Shares the eyrie-flock network — can reach opencode at `http://opencode:4096`
+  when the opencode container is also running.
+- State persists in the `hermes_data` named volume.
+
+Tuning (`.env`): `HERMES_VERSION`, `HERMES_PORT`, `HERMES_AUTH_TOKEN`.
+
+---
+
+## Local models — Ollama, LM Studio, llama.cpp
+
+Run open-weight models **inside the flock** — no host-side installs. Select them
+in `./bin/onboard` Phase 2 (tools) or set `LOCAL_*_ENABLED=1` in `.env`, then:
+
+```bash
+make up-local-models
+```
+
+opencode talks to the servers over the compose network (`http://ollama:11434/v1`,
+`http://lmstudio:1234/v1`, `http://llamacpp:8080/v1`). Provider entries are
+written to `config/opencode.json` automatically (when opencode is selected).
+
+| Server | Image | Host port | Notes |
+|--------|-------|-----------|-------|
+| **Ollama** | `ollama/ollama` | `11434` | Auto-pulls `OLLAMA_PULL_MODEL` on first start. GPU: `OLLAMA_USE_GPU=1`. |
+| **LM Studio** | `lmstudio/llmster-preview:cpu` | `1234` | Headless llmster (CPU preview). Download models with `make lmstudio-pull MODEL=…`. |
+| **llama.cpp** | `ghcr.io/ggml-org/llama.cpp:server` | `8080` | Put a `.gguf` in `./models/`, set `LLAMACPP_MODEL` in `.env`. |
+
+```bash
+make ollama-pull MODEL=llama3.1          # extra Ollama models
+make lmstudio-pull MODEL=openai/gpt-oss-20b
+make down-local-models                   # stop local servers only
+```
+
+After starting, run `/models` inside opencode and pick a local model.
+
+---
+
+## OpenClaw — agent gateway
+
+[OpenClaw](https://openclaw.ai) is an always-on **AI-agent gateway**: a single
+long-lived process that connects your agents to chat channels (WhatsApp,
+Telegram, Discord, Signal, Slack, …) and dispatches agent sessions, with a web
+**Control UI** on port `18789`. Runs standalone — no opencode required.
+
+It needs a one-time onboarding (generates its config + auth secret), then starts
+like the other tools:
+
+```bash
+make openclaw-onboard   # once: interactive — generates config, sets bind/origins
+make up-openclaw        # start the gateway (detached)
+```
+
+Open the Control UI at `http://localhost:18789` and paste the token — `make
+up-openclaw` writes `OPENCLAW_GATEWAY_TOKEN` into `.env` for you (or set your own
+with `openssl rand -hex 32`).
+
+- The `openclaw` gateway serves the Control UI on `18789` (bridge `18790`),
+  bound to `BIND_ADDR`.
+- Config, workspace, and the auth-profile secret persist in the `openclaw_home`
+  and `openclaw_secrets` volumes.
+- `host.docker.internal` is mapped, so OpenClaw's bundled local-model providers
+  can reach flock-network Ollama / LM Studio via `make up-local-models`, or
+  host-side instances via `host.docker.internal`.
+- OpenClaw's own gateway bind mode (`lan` / `local`) is separate from the
+  general `BIND_ADDR` — configure it in Phase 3 of `./bin/onboard` or set
+  `OPENCLAW_GATEWAY_BIND` in `.env`.
+
+Management CLI:
+
+```bash
+make openclaw-cli ARGS="dashboard --no-open"
+make openclaw-cli ARGS="channels login"          # e.g. WhatsApp QR
+```
+
+Tuning (`.env`): `OPENCLAW_VERSION` (or `OPENCLAW_IMAGE` for Docker Hub
+`openclaw/openclaw`), `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_BRIDGE_PORT`,
+`OPENCLAW_GATEWAY_BIND` (`lan`/`local`), `OPENCLAW_TZ`. Stop it with
+`make down-openclaw`.
 
 ---
 
@@ -187,51 +356,22 @@ Pin a version: set `OPENCODE_VERSION=0.x.y` in `.env` and run `make build`.
 
 ---
 
-## Headroom — token-saving proxy
-
-[Headroom](https://github.com/chopratejas/headroom) is a local context-compression
-proxy that sits between opencode and the LLM provider and shrinks everything the
-agent sends (tool outputs, files, logs, history) — typically **40–95% fewer input
-tokens for the same answers**. Everything stays on your machine.
-
-```bash
-make up-headroom
-# = docker compose -f docker-compose.opencode.yml -f docker-compose.headroom.yml up -d
-```
-
-- A `headroom` service runs the proxy on port `8787`.
-- opencode is pointed at it via `OPENCODE_CONFIG_CONTENT` — an **inline config
-  layer** that overrides the Anthropic/OpenAI provider `baseURL` *only while the
-  overlay is active*. Your persisted `./config` is untouched.
-- opencode reaches the proxy at `http://headroom:8787`; the port is also
-  published on `127.0.0.1:8787` for the live savings dashboard.
-
-Only the **anthropic** and **openai** providers are routed (auto-detected from
-the request). Other providers keep talking to their APIs directly.
-
-Tuning (`.env`): `HEADROOM_MODE` (`optimize` default / `cache` / `audit` /
-`passthrough`), `HEADROOM_OUTPUT_SHAPER=1` (also trim output tokens),
-`HEADROOM_VERSION`. Stop it with `make down-headroom`.
-
----
-
 ## Paperclip — agent control plane
 
 [Paperclip](https://github.com/paperclipai/paperclip) is a self-hosted **AI-agent
 control plane** — a task board where agents pick up issues, run in heartbeats,
-comment, and coordinate. Its prebuilt image ships the `claude`, `codex` **and
-`opencode`** CLIs, so its local (process) adapters can drive agents right inside
-the container.
+comment, and coordinate. Runs standalone — no opencode required.
 
 ```bash
 make up-paperclip
-# = docker compose -f docker-compose.opencode.yml -f docker-compose.paperclip.yml up -d
 ```
 
 - The `paperclip` service runs the control plane on port `3100` and serves its
   web board at `/` (bound to `BIND_ADDR`).
-- Shares the network with opencode, so a Paperclip HTTP adapter can reach
-  `http://opencode:4096`.
+- Shares the eyrie-flock network, so a Paperclip HTTP adapter can reach
+  `http://opencode:4096` when opencode is also running.
+- Its prebuilt image ships the `claude`, `codex` **and `opencode`** CLIs, so
+  local (process) adapters can drive agents inside the container.
 - `make up-paperclip` generates a stable `PAPERCLIP_AUTH_SECRET` into `.env` the
   first time (or set your own with `openssl rand -hex 32`).
 - State (embedded SQLite DB, uploads, secrets key, workspace) persists in the
@@ -241,47 +381,6 @@ Tuning (`.env`): `PAPERCLIP_PORT`, `PAPERCLIP_PUBLIC_URL` (set when reached on
 something other than `http://localhost:${PAPERCLIP_PORT}`), `PAPERCLIP_VERSION`.
 Local adapters reuse the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` from `.env`.
 Stop it with `make down-paperclip`.
-
----
-
-## OpenClaw — agent gateway
-
-[OpenClaw](https://openclaw.ai) is an always-on **AI-agent gateway**: a single
-long-lived process that connects your agents to chat channels (WhatsApp,
-Telegram, Discord, Signal, Slack, …) and dispatches agent sessions, with a web
-**Control UI** on port `18789`.
-
-It needs a one-time onboarding (generates its config + auth secret), then starts
-like the other tools:
-
-```bash
-make openclaw-onboard   # once: interactive — generates config, sets bind/origins
-make up-openclaw        # start the gateway (detached)
-# = docker compose -f docker-compose.opencode.yml -f docker-compose.openclaw.yml up -d openclaw
-```
-
-Open the Control UI at `http://localhost:18789` and paste the token — `make
-up-openclaw` writes `OPENCLAW_GATEWAY_TOKEN` into `.env` for you (or set your own
-with `openssl rand -hex 32`).
-
-- The `openclaw` gateway serves the Control UI on `18789` (bridge `18790`),
-  bound to `BIND_ADDR`.
-- Config, workspace, and the auth-profile secret persist in the `openclaw_home`
-  and `openclaw_secrets` volumes.
-- `host.docker.internal` is mapped, so OpenClaw's bundled local-model providers
-  can reach a host-side Ollama / LM Studio.
-
-Management CLI:
-
-```bash
-make openclaw-cli ARGS="dashboard --no-open"
-make openclaw-cli ARGS="channels login"          # e.g. WhatsApp QR
-```
-
-Tuning (`.env`): `OPENCLAW_VERSION` (or `OPENCLAW_IMAGE` for Docker Hub
-`openclaw/openclaw`), `OPENCLAW_GATEWAY_PORT`, `OPENCLAW_BRIDGE_PORT`,
-`OPENCLAW_GATEWAY_BIND` (`lan`/`local`), `OPENCLAW_TZ`. Stop it with
-`make down-openclaw`.
 
 ---
 
@@ -295,11 +394,16 @@ make build       # build the opencode image
 make up          # start opencode only
 make up-all      # start opencode + Paperclip + OpenClaw (shared network)
 make up-headroom # opencode + Headroom token-saving proxy
-make up-paperclip# opencode + Paperclip control plane
-make up-openclaw # opencode + OpenClaw gateway (run `make openclaw-onboard` once first)
+make up-paperclip# Paperclip control plane (standalone)
+make up-openclaw # OpenClaw gateway (standalone)
+make up-hermes   # Hermes Agent (standalone)
+make up-local-models # local model servers (Ollama / LM Studio / llama.cpp)
+make claude-code # Claude Code CLI: ARGS="refactor this file"
+make cursor-agent# Cursor Agent CLI: ARGS="-p -- 'add tests'"
+make build-agents# build the agent CLI images (Claude Code, Cursor Agent)
 make up-tls      # opencode behind Caddy + automatic HTTPS
 make down        # stop the whole flock
-make down-*      # stop a specific tool overlay (down-headroom/-paperclip/-openclaw/-tls)
+make down-*      # stop a specific tool (down-headroom/-paperclip/-openclaw/-hermes/-local-models/-tls)
 make restart     # restart opencode
 make logs        # follow logs
 make ps          # container status
@@ -325,14 +429,18 @@ make update      # rebuild opencode with the latest release and restart
 ```
 eyrie-flock/
 ├── Dockerfile                    # opencode image: node + opencode + git/ssh/ripgrep
-├── docker-compose.opencode.yml   # base tool: opencode (web service, volumes, ports)
-├── docker-compose.headroom.yml   # overlay: Headroom token-saving proxy
-├── docker-compose.paperclip.yml  # overlay: Paperclip agent control plane
-├── docker-compose.openclaw.yml   # overlay: OpenClaw agent gateway
-├── docker-compose.caddy.yml      # overlay: Caddy reverse proxy + HTTPS
+├── docker-compose.opencode.yml   # opencode (web service, volumes, ports)
+├── docker-compose.headroom.yml   # Headroom token-saving proxy (+ opencode overlay)
+├── docker-compose.paperclip.yml  # Paperclip agent control plane
+├── docker-compose.openclaw.yml   # OpenClaw agent gateway
+├── docker-compose.caddy.yml      # Caddy reverse proxy + HTTPS
+├── docker-compose.hermes.yml     # Hermes self-improving agent
+├── docker-compose.local-models.yml # Ollama, LM Studio, llama.cpp
+├── docker-compose.agents.yml     # Claude Code, Cursor Agent CLIs
 ├── .env.example                  # configuration (copy to .env)
 ├── Makefile                      # shortcuts for every tool + combinations
 ├── bin/opencode                  # opencode CLI wrapper (exec/run through Docker)
+├── bin/onboard                   # interactive setup wizard
 ├── deploy/                       # VPS (Hetzner) deploy helpers
 ├── cloudflare/                   # opencode-only deploy to Cloudflare Containers
 ├── config/                       # [persistence] opencode configuration

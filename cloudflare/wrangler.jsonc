@@ -11,7 +11,7 @@
   "containers": [
     {
       "class_name": "OpenCode",
-      "image": "./Dockerfile",
+      "image": "../docker/Dockerfile.opencode",
       "max_instances": 1,
       "instance_type": "basic"
     }

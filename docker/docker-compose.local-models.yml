@@ -1,0 +1,94 @@
+# Adds local LLM inference servers (Ollama, LM Studio / llmster, llama.cpp) on the
+# eyrie-flock Docker network so agents can reach them by service name — no
+# host-side installs required. When opencode is also running it picks up the
+# providers automatically:
+#
+#   docker compose -f docker-compose.opencode.yml \
+#                  -f docker-compose.local-models.yml --profile ollama up -d
+#   (or: make up-local-models)
+#
+# How it hooks in:
+#   * Each server is gated by a Compose profile (ollama / lmstudio / llamacpp).
+#     bin/onboard sets LOCAL_*_ENABLED=1 in .env; make up-local-models reads
+#     those flags and activates the matching profiles.
+#   * bin/configure-local-providers writes provider entries into
+#     config/opencode.json with baseURLs on the compose network
+#     (http://ollama:11434/v1, etc.) for opencode to use when it's running.
+#   * The `opencode` service gets depends_on hooks for Ollama/LM Studio health
+#     (only when both compose files are active).
+#
+# Notes:
+#   * Ollama: optional GPU via OLLAMA_USE_GPU=1 (needs NVIDIA Container Toolkit).
+#   * LM Studio: uses the official llmster preview image (CPU, x86_64).
+#   * llama.cpp: requires LLAMACPP_MODEL (a .gguf file under ./models/).
+name: eyrie-flock
+
+services:
+  ollama:
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    container_name: eyrie-ollama
+    profiles: ["ollama"]
+    restart: unless-stopped
+
+    volumes:
+      - ollama_data:/root/.ollama
+
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11434}:11434"
+
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  ollama-init:
+    image: ollama/ollama:${OLLAMA_VERSION:-latest}
+    container_name: eyrie-ollama-init
+    profiles: ["ollama"]
+    restart: "no"
+    depends_on:
+      ollama:
+        condition: service_healthy
+
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_PULL_MODEL: ${OLLAMA_PULL_MODEL:-}
+
+    volumes:
+      - ../bin/ollama-init:/init.sh:ro
+
+    entrypoint: ["/bin/bash", "/init.sh"]
+
+  lmstudio:
+    image: lmstudio/llmster-preview:${LMSTUDIO_VERSION:-cpu}
+    container_name: eyrie-lmstudio
+    profiles: ["lmstudio"]
+    restart: unless-stopped
+
+    volumes:
+      - lmstudio_data:/root/.cache/lm-studio
+
+    ports:
+      - "127.0.0.1:${LMSTUDIO_PORT:-1234}:1234"
+
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/1234' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+      start_period: 45s
+
+  opencode:
+    depends_on:
+      ollama:
+        condition: service_healthy
+        required: false
+      lmstudio:
+        condition: service_healthy
+        required: false
+
+volumes:
+  ollama_data:
+  lmstudio_data:

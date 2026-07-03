@@ -127,7 +127,7 @@ write_files:
       echo "Building Docker images ..."
       make build
 
-      # --- Start the full stack -----------------------------------------------
+      # --- Start tools -----------------------------------------------
       echo "Starting opencode + Paperclip + OpenClaw ..."
       make up-all
 
@@ -148,25 +148,27 @@ write_files:
       OC_PORT=$(grep '^PORT=' .env | cut -d= -f2)
       PP_PORT=$(grep '^PAPERCLIP_PORT=' .env | cut -d= -f2)
       OCW_PORT=$(grep '^OPENCLAW_GATEWAY_PORT=' .env | cut -d= -f2)
+      HERM_PORT=$(grep '^HERMES_PORT=' .env | cut -d= -f2)
 
       echo ""
       echo "╔══════════════════════════════════════════════════╗"
-      echo "║        🐦  eyrie-flock  —  READY!               ║"
+      echo "║          🦅 eyrie-flock  —  READY!               ║"
       echo "╠══════════════════════════════════════════════════╣"
       echo "║                                                  ║"
-      echo "║  opencode   →  $OC_USER / $(echo "$OC_PASS" | cut -c1-8)…"
+      echo "║  opencode   →  $OC_USER:$(echo "$OC_PASS" | cut -c1-8)…"
       if [ -n "$DOMAIN" ]; then
         echo "║  Web UI     →  https://$DOMAIN                  ║"
       fi
       echo "║  Direct     →  http://$SERVER_IP:$OC_PORT          ║"
       echo "║  Paperclip  →  http://$SERVER_IP:$PP_PORT          ║"
       echo "║  OpenClaw   →  http://$SERVER_IP:$OCW_PORT         ║"
+      echo "║  Hermes     →  http://$SERVER_IP:$HERM_PORT         ║"
       echo "║                                                  ║"
       echo "║  🔑  SAVE THIS PASSWORD:  $OC_PASS"
       echo "║                                                  ║"
       echo "║  Next steps:                                     ║"
-      echo "║  1. Set API keys:  make auth                     ║"
-      echo "║  2. Visit Web UI and log in                       ║"
+      echo "║  1. Set API keys:  cd eyrie-flock && make auth    ║"
+      echo "║  2. Visit Web UI at the URLs above and log in     ║"
       echo "╚══════════════════════════════════════════════════╝"
       echo ""
 
@@ -182,6 +184,11 @@ runcmd:
   - apt-get update
   - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
   - systemctl enable --now docker
+
+  # --- Install gum (charmbracelet interactive CLI toolkit, used by bin/onboard) --
+  - echo 'deb [trusted=yes] https://repo.charm.sh/apt/ /' | tee /etc/apt/sources.list.d/charm.list
+  - apt-get update
+  - apt-get install -y gum
 
   # --- Firewall: SSH only by default ---------------------------------------
   - ufw default deny incoming

@@ -26,10 +26,17 @@ set -euo pipefail
 SELF="$(readlink -f "${BASH_SOURCE[0]}")"
 DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
 
-COMPOSE=(docker compose --project-directory "$DIR" -f "$DIR/docker-compose.opencode.yml")
+COMPOSE=(docker compose --project-directory "$DIR" -f "$DIR/docker/docker-compose.opencode.yml")
 SERVICE="opencode"
 PROJECTS_DIR="$DIR/projects"
 cwd="$PWD"
+
+# Fix ownership of mounted data/config volumes when files were created as root
+# by an earlier container run (before PUID/PGID was set). Without this, the
+# non-root container user gets PermissionDenied on log/db writes.
+"${COMPOSE[@]}" run --rm --user root --entrypoint sh "$SERVICE" -c \
+    "chown -R $(id -u):$(id -g) /home/opencode/.config/opencode /home/opencode/.local/share/opencode 2>/dev/null" \
+    2>/dev/null || true
 
 # Interactive gets -it (compose default); pipes/SSH without a tty get -T.
 tty_flag=()

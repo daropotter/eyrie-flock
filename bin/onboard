@@ -1,0 +1,708 @@
+#!/usr/bin/env bash
+#
+# onboard — Interactive setup wizard for eyrie-flock
+#
+# Walks you through:
+#   1. Basic config (user, password, network binding)
+#   2. Tool selection (which flock services to run)
+#   3. Tool & provider configuration (shared AI providers + per-tool settings)
+#   4. Secret generation + SSH key setup
+#   5. Build + start only what you selected
+#   6. Summary with URLs and next steps
+#
+# Depends on: gum (https://github.com/charmbracelet/gum)
+# Run:  ./bin/onboard   (or:  make onboard)
+#
+set -euo pipefail
+cd "$(dirname "$(dirname "$0")")"
+
+command -v gum &>/dev/null || {
+  echo >&2 "gum (https://github.com/charmbracelet/gum) is required for the interactive wizard."
+  echo >&2 "It provides styled inputs, spinners, confirmations, and more."
+  read -r -p "Install gum now? [Y/n] " reply
+  if [[ "$reply" =~ ^[Nn] ]]; then
+    echo >&2 "Cannot proceed without gum. Exiting."
+    exit 1
+  fi
+  if command -v apt &>/dev/null; then
+    echo 'deb [trusted=yes] https://repo.charm.sh/apt/ /' | sudo tee /etc/apt/sources.list.d/charm.list
+    sudo apt-get update && sudo apt-get install -y gum
+  elif command -v brew &>/dev/null; then
+    brew install gum
+  else
+    echo >&2 "Unsupported package manager. Install manually: https://github.com/charmbracelet/gum#installation"
+    exit 1
+  fi
+}
+
+# ── Colours (for manual echo fallback) ──────────────────────
+G=$'\033[32m'; Y=$'\033[33m'; C=$'\033[36m'; R=$'\033[31m'; D=$'\033[2m'; B=$'\033[1m'; N=$'\033[0m'
+
+# ── Helpers ─────────────────────────────────────────────────
+info()  { gum log --time "" --level info "$1"; }
+warn()  { gum log --time "" --level warn "$1"; }
+note()  { gum style --foreground 99 "ℹ $1" >&2; }
+
+set_env() {
+  local key="$1" val="$2"
+  if grep -qE "^${key}=" .env 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" .env
+  else
+    echo "${key}=${val}" >> .env
+  fi
+}
+get_env() { grep -E "^${1}=" .env 2>/dev/null | cut -d= -f2- || echo ""; }
+gen_secret() { openssl rand -hex 32; }
+
+password_with_confirm() {
+  local label="$1" var="$2" auto="${3:-true}"
+  local p1 p2
+  while true; do
+    p1=$(gum input --password --header "$label (blank = auto-generate)" --width 60) || true
+    if [[ -z "$p1" ]]; then
+      if [[ "$auto" == true ]]; then
+        printf -v "$var" '%s' "$(gen_secret | cut -c1-24)"
+        PASS_WAS_AUTO=true
+        return 0
+      fi
+      return 1
+    fi
+    p2=$(gum input --password --header "Confirm password" --width 60) || continue
+    [[ "$p1" == "$p2" ]] && break
+    warn "Passwords do not match — try again"
+  done
+  printf -v "$var" '%s' "$p1"
+  PASS_WAS_AUTO=false
+}
+
+# ── Phase 0: Ensure .env ────────────────────────────────────
+if [[ ! -f .env ]]; then
+  if [[ -f .env.example ]]; then
+    cp .env.example .env
+    info "Created .env from .env.example"
+  else
+    touch .env
+    warn "No .env.example found — starting from scratch"
+  fi
+else
+  info "Existing .env found — will update in place"
+fi
+mkdir -p config data projects models ssh
+
+# ── Banner ──────────────────────────────────────────────────
+gum style --border double --border-foreground 99 --padding "1 2" --align center \
+  "🦅 eyrie-flock — Onboarding Wizard" \
+  "" \
+  "Self-hostable AI-agent stack: pick your tools and providers." >&2
+
+echo >&2
+
+# ── Phase 1: Basic config ───────────────────────────────────
+gum style --border rounded --border-foreground 99 --padding "0 1" --bold "Phase 1: System Configuration" >&2
+echo >&2
+
+cur_uid=$(id -u)
+cur_gid=$(id -g)
+
+PUID=$(gum input --header "Host UID" --value "$(get_env PUID || echo $cur_uid)" || true)
+set_env PUID "${PUID:-$cur_uid}"
+echo "  → UID: ${PUID:-$cur_uid}" >&2
+
+PGID=$(gum input --header "Host GID" --value "$(get_env PGID || echo $cur_gid)" || true)
+set_env PGID "${PGID:-$cur_gid}"
+echo "  → GID: ${PGID:-$cur_gid}" >&2
+
+echo >&2
+
+# ── Phase 2: Tool selection ─────────────────────────────────
+gum style --border rounded --border-foreground 99 --padding "0 1" --bold "Phase 2: Select Tools" >&2
+echo >&2
+echo "  Pick any combination of tools below. Each runs independently." >&2
+echo "  Tools that share the eyrie-flock network can interoperate." >&2
+echo >&2
+
+tools=$(gum choose --no-limit --header "Which tools do you want?" \
+  "opencode  opencode — AI coding agent with web UI + CLI (port 4096)" \
+  "headroom  Headroom — token-saving compression proxy (port 8787)" \
+  "paperclip  Paperclip — AI-agent task board / control plane (port 3100)" \
+  "openclaw  OpenClaw — always-on chat gateway (WhatsApp/Telegram/Discord, port 18789)" \
+  "hermes  Hermes Agent — self-improving AI agent with memory (port 8642)" \
+  "caddy  Caddy — reverse proxy with automatic HTTPS (ports 80/443)" \
+  "ollama  Ollama — local open-model inference in Docker (port 11434)" \
+  "lmstudio  LM Studio — llmster local server in Docker (port 1234)" \
+  "llamacpp  llama.cpp — local GGUF inference in Docker (port 8080)" \
+  | sed -n 's/  .*//p') || true
+echo "  → Tools: $(tr '\n' ' ' <<< "${tools:-none}")" >&2
+echo >&2
+
+echo >&2
+
+# ── Phase 3: Network Configuration ──────────────────────────
+gum style --border rounded --border-foreground 99 --padding "0 1" --bold "Phase 3: Network Configuration" >&2
+echo >&2
+gum style --foreground 240 --faint \
+  "Port binding: 127.0.0.1 = localhost only (recommended, behind reverse proxy)" \
+  "              0.0.0.0   = whole LAN / external (requires passwords!)" >&2
+BIND=$(gum input --header "Base bind address (shared by all tools)" --value "$(get_env BIND_ADDR || echo 127.0.0.1)" || true)
+[[ -z "$BIND" ]] && BIND="127.0.0.1"
+set_env BIND_ADDR "$BIND"
+echo "  → General bind: $BIND" >&2
+
+if echo "$tools" | grep -qE '(^|[[:space:]])openclaw($|[[:space:]])'; then
+  echo >&2
+  gum style --foreground 240 --faint \
+    "OpenClaw has its own gateway bind mode:" \
+    "  lan   = reachable from host/LAN (needed to open the Control UI)" \
+    "  local = loopback only" >&2
+  cur_gw_bind=$(get_env OPENCLAW_GATEWAY_BIND); [[ -z "$cur_gw_bind" ]] && cur_gw_bind="lan"
+  oc_bind=$(gum choose "lan" "local" --header "OpenClaw gateway bind mode (default: $cur_gw_bind)" || true)
+  [[ -z "$oc_bind" ]] && oc_bind="$cur_gw_bind"
+  set_env OPENCLAW_GATEWAY_BIND "$oc_bind"
+  echo "  → OpenClaw bind: $oc_bind" >&2
+fi
+
+echo >&2
+
+# ── Phase 4: Configure Tools & AI Providers ─────────────────
+gum style --border rounded --border-foreground 99 --padding "0 1" --bold "Phase 4: Configure Tools & AI Providers" >&2
+echo >&2
+echo "  Configure shared AI providers (used by all selected tools)" >&2
+echo "  followed by tool-specific settings for each tool you picked." >&2
+echo >&2
+
+declare -A _CFG_KEYS
+
+# ── Part A: Shared AI Providers ──────────────────────────────
+gum style --bold "Part A: AI Providers (shared across all tools)" >&2
+echo >&2
+echo "  Choose which AI providers you want to use. API keys are shared across" >&2
+echo "  your selected tools — configure once, reuse everywhere." >&2
+echo >&2
+
+prov_selection=$(
+  printf '%s\n' \
+    "anthropic  Anthropic (Claude) — Sonnet, Opus, Haiku [🔑API key]" \
+    "openai  OpenAI (GPT) — GPT-4o, GPT-5, o-series [🔑API key]" \
+    "openrouter  OpenRouter — multi-model gateway [🔑API key]" \
+    "gemini  Google Gemini — Pro, Flash [🔑API key]" \
+    "groq  Groq — ultra-fast inference [🔑API key]" \
+    "deepseek  DeepSeek — V/R coder models [🔑API key]" \
+    "xai  xAI (Grok) — Grok models [🔑API key]" \
+    "together  Together AI — open models on fast GPUs [🔑API key]" \
+    "huggingface  HuggingFace — 17+ inference backends [🔑API key]" \
+    "mistral  Mistral AI — Large, Codestral [🔑API key]" \
+    "fireworks  Fireworks AI — fast open-model inference [🔑API key]" \
+    "cerebras  Cerebras — ultra-fast inference [🔑API key]" \
+    "nvidia  NVIDIA — Nemotron + open models free tier [🔑API key]" \
+    "cursor  Cursor Agent CLI — headless agent [🔑API key]" \
+  | gum filter --no-limit --header "Which AI providers do you want to configure?" \
+  | sed -n 's/  .*//p') || true
+echo "  → Providers: $(tr '\n' ' ' <<< "${prov_selection:-none}")" >&2
+
+declare -A PROV_ENV=(
+  [anthropic]="ANTHROPIC_API_KEY"     [openai]="OPENAI_API_KEY"
+  [openrouter]="OPENROUTER_API_KEY"   [gemini]="GEMINI_API_KEY"
+  [groq]="GROQ_API_KEY"              [deepseek]="DEEPSEEK_API_KEY"
+  [xai]="XAI_API_KEY"                [together]="TOGETHER_API_KEY"
+  [huggingface]="HF_TOKEN"           [mistral]="MISTRAL_API_KEY"
+  [fireworks]="FIREWORKS_API_KEY"    [cerebras]="CEREBRAS_API_KEY"
+  [nvidia]="NVIDIA_API_KEY"          [cursor]="CURSOR_API_KEY"
+)
+declare -A PROV_NAME=(
+  [anthropic]="Anthropic"    [openai]="OpenAI"         [openrouter]="OpenRouter"
+  [gemini]="Google Gemini"   [groq]="Groq"             [deepseek]="DeepSeek"
+  [xai]="xAI"                [together]="Together AI"  [huggingface]="HuggingFace"
+  [mistral]="Mistral AI"     [fireworks]="Fireworks AI" [cerebras]="Cerebras"
+  [nvidia]="NVIDIA"          [cursor]="Cursor Agent"
+)
+
+echo >&2
+gum style --foreground 99 "Configuring shared AI providers" >&2
+
+for prov in $prov_selection; do
+  env_var="${PROV_ENV[$prov]:-}"
+  name="${PROV_NAME[$prov]}"
+
+  cur_val=$(get_env "$env_var")
+  if [[ -n "$cur_val" ]]; then
+    info "$name: key already in .env (${cur_val:0:8}…)"
+    _CFG_KEYS["$env_var"]="$cur_val"
+    gum confirm "  Replace it?" || continue
+  fi
+  key=$(gum input --header "Paste $name API key (or 'skip')" --width 60) || true
+  if [[ -z "$key" || "$key" == "skip" ]]; then
+    warn "$name: skipped — add $env_var later in .env"
+  else
+    set_env "$env_var" "$key"
+    _CFG_KEYS["$env_var"]="$key"
+    info "$name: key saved to .env (shared across tools)"
+  fi
+  echo >&2
+done
+
+# ── Part B: Tool-specific configuration ──────────────────────
+echo >&2
+gum style --border rounded --border-foreground 99 --padding "0 1" --bold "Part B: Per-Tool Configuration" >&2
+
+set_env LOCAL_OLLAMA_ENABLED ""
+set_env LOCAL_LMSTUDIO_ENABLED ""
+set_env LOCAL_LLAMACPP_ENABLED ""
+
+for tool in $tools; do
+  case "$tool" in
+    opencode)
+      echo >&2
+      gum style --bold "Configuring opencode" >&2
+      echo >&2
+
+      pass_changed=false
+      PASS_WAS_AUTO=false
+      cur_bind=$(get_env BIND_ADDR || echo "127.0.0.1")
+      cur_pass=$(get_env OPENCODE_SERVER_PASSWORD)
+      if [[ "$cur_bind" != "127.0.0.1" && -z "$cur_pass" ]]; then
+        warn "Non-localhost binding — a password is required!"
+        if password_with_confirm "Set opencode web password" pass; then
+          set_env OPENCODE_SERVER_PASSWORD "$pass"
+          pass_changed=true
+        fi
+      elif gum confirm "Set an opencode web password (recommended for multi-user)?"; then
+        if password_with_confirm "Password" pass; then
+          set_env OPENCODE_SERVER_PASSWORD "$pass"
+          pass_changed=true
+        fi
+      fi
+      if [[ "$pass_changed" == true ]]; then
+        [[ "$PASS_WAS_AUTO" == true ]] && info "Password set (auto-generated — see .env)" || info "Password set"
+      fi
+      info "opencode configured"
+      ;;
+
+    headroom)
+      echo >&2
+      gum style --bold "Configuring Headroom" >&2
+      echo >&2
+      [[ -n "${_CFG_KEYS[ANTHROPIC_API_KEY]:-}" ]] && info "Will use shared ANTHROPIC_API_KEY"
+      [[ -n "${_CFG_KEYS[OPENAI_API_KEY]:-}" ]] && info "Will use shared OPENAI_API_KEY"
+      [[ -n "${_CFG_KEYS[GEMINI_API_KEY]:-}" ]] && info "Will use shared GEMINI_API_KEY"
+      echo >&2
+
+      cur_mode=$(get_env HEADROOM_MODE); [[ -z "$cur_mode" ]] && cur_mode="optimize"
+      hrm_mode=$(gum choose \
+        "optimize     — max compression (default)" \
+        "cache        — keep provider prefix cache stable" \
+        "audit        — audit mode (log, no compression)" \
+        "passthrough  — no compression" \
+        --header "Compression mode (default: $cur_mode)" | sed -n 's/  .*//p') || true
+      set_env HEADROOM_MODE "${hrm_mode:-$cur_mode}"
+      echo "  → Mode: ${hrm_mode:-$cur_mode}" >&2
+
+      cur_lvl=$(get_env HEADROOM_LOG_LEVEL); [[ -z "$cur_lvl" ]] && cur_lvl="INFO"
+      hrm_lvl=$(gum input --header "Log level (default: $cur_lvl)" --value "$cur_lvl" || true)
+      set_env HEADROOM_LOG_LEVEL "${hrm_lvl:-$cur_lvl}"
+      echo "  → Log level: ${hrm_lvl:-$cur_lvl}" >&2
+
+      if gum confirm "Enable output shaper (trim response tokens)?"; then
+        set_env HEADROOM_OUTPUT_SHAPER 1
+        echo "  → Output shaper: enabled" >&2
+      else
+        set_env HEADROOM_OUTPUT_SHAPER 0
+        echo "  → Output shaper: disabled" >&2
+      fi
+      info "Headroom configured"
+      ;;
+
+    paperclip)
+      echo >&2
+      gum style --bold "Configuring Paperclip" >&2
+      echo >&2
+      [[ -n "${_CFG_KEYS[ANTHROPIC_API_KEY]:-}" ]] && info "Will use shared ANTHROPIC_API_KEY"
+      [[ -n "${_CFG_KEYS[OPENAI_API_KEY]:-}" ]] && info "Will use shared OPENAI_API_KEY"
+      echo >&2
+
+      pub_url=$(gum input --header "Public URL for auth/callbacks (empty for default, e.g. https://board.example.com)" || true)
+      if [[ -n "$pub_url" ]]; then
+        set_env PAPERCLIP_PUBLIC_URL "$pub_url"
+        echo "  → Public URL: $pub_url" >&2
+        echo >&2
+      fi
+
+      secret_changed=false
+      PASS_WAS_AUTO=false
+      cur_secret=$(get_env PAPERCLIP_AUTH_SECRET)
+      if [[ -z "$cur_secret" ]]; then
+        warn "An auth secret is required for Paperclip!"
+        if password_with_confirm "Set Paperclip auth secret" secret; then
+          set_env PAPERCLIP_AUTH_SECRET "$secret"
+          secret_changed=true
+        fi
+      elif gum confirm "Replace existing Paperclip auth secret?"; then
+        if password_with_confirm "New auth secret" secret; then
+          set_env PAPERCLIP_AUTH_SECRET "$secret"
+          secret_changed=true
+        fi
+      fi
+      if [[ "$secret_changed" == true ]]; then
+        [[ "$PASS_WAS_AUTO" == true ]] && info "Auth secret set (auto-generated — see .env)" || info "Auth secret set"
+      fi
+      info "Paperclip configured"
+      ;;
+
+    openclaw)
+      echo >&2
+      gum style --bold "Configuring OpenClaw" >&2
+      echo >&2
+      [[ -n "${_CFG_KEYS[ANTHROPIC_API_KEY]:-}" ]] && info "Will use shared ANTHROPIC_API_KEY"
+      [[ -n "${_CFG_KEYS[OPENAI_API_KEY]:-}" ]] && info "Will use shared OPENAI_API_KEY"
+      echo >&2
+
+      cur_tz=$(get_env OPENCLAW_TZ)
+      def_tz="${cur_tz:-}"
+      if [[ -z "$def_tz" ]]; then
+        def_tz="${TZ:-}"
+        if [[ -z "$def_tz" ]] && command -v timedatectl >/dev/null 2>&1; then
+          def_tz="$(timedatectl show --property=Timezone --value 2>/dev/null || true)"
+        fi
+        if [[ -z "$def_tz" && -f /etc/timezone ]]; then
+          def_tz="$(tr -d '[:space:]' < /etc/timezone)"
+        fi
+        [[ -z "$def_tz" ]] && def_tz="UTC"
+      fi
+      oc_tz=$(gum input --header "Timezone (IANA, e.g. Europe/Warsaw)" --value "$def_tz" || true)
+      set_env OPENCLAW_TZ "${oc_tz:-$def_tz}"
+      echo "  → Timezone: ${oc_tz:-$def_tz}" >&2
+      echo >&2
+
+      secret_changed=false
+      PASS_WAS_AUTO=false
+      cur_secret=$(get_env OPENCLAW_GATEWAY_TOKEN)
+      if [[ -z "$cur_secret" ]]; then
+        warn "A gateway token is required for OpenClaw!"
+        if password_with_confirm "Set OpenClaw gateway token" secret; then
+          set_env OPENCLAW_GATEWAY_TOKEN "$secret"
+          secret_changed=true
+        fi
+      elif gum confirm "Replace existing OpenClaw gateway token?"; then
+        if password_with_confirm "New gateway token" secret; then
+          set_env OPENCLAW_GATEWAY_TOKEN "$secret"
+          secret_changed=true
+        fi
+      fi
+      if [[ "$secret_changed" == true ]]; then
+        [[ "$PASS_WAS_AUTO" == true ]] && info "Gateway token set (auto-generated — see .env)" || info "Gateway token set"
+      fi
+      info "OpenClaw configured"
+      note "After start: run 'make openclaw-onboard' for first-time setup"
+      ;;
+
+    hermes)
+      echo >&2
+      gum style --bold "Configuring Hermes" >&2
+      echo >&2
+      _hermes_avail=0
+      for _k in ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY GEMINI_API_KEY GROQ_API_KEY DEEPSEEK_API_KEY XAI_API_KEY TOGETHER_API_KEY HF_TOKEN MISTRAL_API_KEY FIREWORKS_API_KEY CEREBRAS_API_KEY NVIDIA_API_KEY; do
+        [[ -n "${_CFG_KEYS[$_k]:-}" ]] && _hermes_avail=$(( _hermes_avail + 1 ))
+      done
+      note "Will use $_hermes_avail configured provider key(s) from shared providers"
+      echo >&2
+
+      secret_changed=false
+      PASS_WAS_AUTO=false
+      cur_secret=$(get_env HERMES_AUTH_TOKEN)
+      if [[ -z "$cur_secret" ]]; then
+        warn "An auth token is required for Hermes!"
+        if password_with_confirm "Set Hermes auth token" secret; then
+          set_env HERMES_AUTH_TOKEN "$secret"
+          secret_changed=true
+        fi
+      elif gum confirm "Replace existing Hermes auth token?"; then
+        if password_with_confirm "New auth token" secret; then
+          set_env HERMES_AUTH_TOKEN "$secret"
+          secret_changed=true
+        fi
+      fi
+      if [[ "$secret_changed" == true ]]; then
+        [[ "$PASS_WAS_AUTO" == true ]] && info "Auth token set (auto-generated — see .env)" || info "Auth token set"
+      fi
+      info "Hermes configured"
+      ;;
+
+    caddy)
+      echo >&2
+      gum style --bold "Configuring Caddy" >&2
+      echo >&2
+      cur_domain=$(get_env OPENCODE_DOMAIN)
+      domain=$(gum input --header "Domain name (e.g. mydomain.com or 123-45-67-89.sslip.io)" --value "${cur_domain:-}" || true)
+      if [[ -n "$domain" ]]; then
+        set_env OPENCODE_DOMAIN "$domain"
+        echo "  → Domain: $domain" >&2
+        echo >&2
+        cur_email=$(get_env ACME_EMAIL)
+        acme_email=$(gum input --header "ACME email for Let's Encrypt" --value "${cur_email:-}" || true)
+        [[ -n "$acme_email" ]] && set_env ACME_EMAIL "$acme_email"
+        [[ -n "$acme_email" ]] && echo "  → ACME email: $acme_email" >&2
+        info "Caddy configured with domain $domain"
+      else
+        warn "Caddy needs OPENCODE_DOMAIN — set it later in .env"
+      fi
+      ;;
+
+    ollama)
+      echo >&2
+      gum style --bold "Configuring Ollama" >&2
+      echo >&2
+      set_env LOCAL_OLLAMA_ENABLED 1
+
+      cur_model=$(get_env OLLAMA_DEFAULT_MODEL); [[ -z "$cur_model" ]] && cur_model="llama3.1"
+      ollama_model=$(gum input --header "Default model tag (default: $cur_model)" --value "$cur_model" || true)
+      set_env OLLAMA_DEFAULT_MODEL "$ollama_model"
+      set_env OLLAMA_PULL_MODEL "$ollama_model"
+      echo "  → Default model: ${ollama_model:-$cur_model}" >&2
+
+      if gum confirm "Enable NVIDIA GPU passthrough? (needs NVIDIA Container Toolkit)"; then
+        set_env OLLAMA_USE_GPU 1
+        echo "  → GPU: enabled" >&2
+      else
+        set_env OLLAMA_USE_GPU ""
+        echo "  → GPU: disabled" >&2
+      fi
+      info "Ollama: http://ollama:11434 on flock network"
+      ;;
+
+    lmstudio)
+      echo >&2
+      gum style --bold "Configuring LM Studio" >&2
+      echo >&2
+      set_env LOCAL_LMSTUDIO_ENABLED 1
+
+      cur_model=$(get_env LMSTUDIO_DEFAULT_MODEL); [[ -z "$cur_model" ]] && cur_model="local-model"
+      ls_model=$(gum input --header "Default model name (default: $cur_model)" --value "$cur_model" || true)
+      set_env LMSTUDIO_DEFAULT_MODEL "$ls_model"
+
+      info "LM Studio: http://lmstudio:1234 on flock network"
+      note "After start: make lmstudio-pull MODEL=<name> to download a model"
+      ;;
+
+    llamacpp)
+      echo >&2
+      gum style --bold "Configuring llama.cpp" >&2
+      echo >&2
+      set_env LOCAL_LLAMACPP_ENABLED 1
+
+      mkdir -p models
+      cur_gguf=$(get_env LLAMACPP_MODEL)
+      gguf=$(gum input --header "GGUF filename in ./models/ (e.g. qwen2.5-coder-7b.Q4_K_M.gguf, or 'skip')" --value "${cur_gguf:-}" || true)
+      if [[ -z "$gguf" || "$gguf" == "skip" ]]; then
+        warn "llama.cpp: enabled but no model set — add LLAMACPP_MODEL to .env before make up-local-models"
+      else
+        set_env LLAMACPP_MODEL "$gguf"
+        base="${gguf%.gguf}"
+        set_env LLAMACPP_DEFAULT_MODEL "$(basename "$base")"
+        echo "  → GGUF model: $gguf" >&2
+        info "llama.cpp: http://llamacpp:8080 on flock network"
+      fi
+      ;;
+  esac
+done
+
+# Write opencode provider entries for local models (only when opencode is selected)
+if echo "$tools" | grep -qE '(^|[[:space:]])(ollama|lmstudio|llamacpp)($|[[:space:]])' && \
+   echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
+  echo >&2
+  bash scripts/configure-local-providers.sh
+fi
+
+echo >&2
+
+# ── Phase 5: Secrets & SSH ──────────────────────────────────
+gum style --border rounded --border-foreground 99 --padding "0 1" --bold "Phase 5: Generating Secrets & SSH Key" >&2
+echo >&2
+
+if [[ ! -f ssh/id_ed25519 ]]; then
+  mkdir -p ssh && chmod 700 ssh
+  gum spin --spinner line --title "Generating SSH key…" -- ssh-keygen -t ed25519 -N "" -C "opencode-$(hostname)" -f ssh/id_ed25519 >/dev/null 2>&1
+  info "Generated dedicated SSH key in ./ssh"
+else
+  info "SSH key already exists in ./ssh — keeping it"
+fi
+touch ssh/known_hosts 2>/dev/null || true
+ssh-keyscan github.com 2>/dev/null >> ssh/known_hosts || true
+sort -u ssh/known_hosts -o ssh/known_hosts 2>/dev/null || true
+
+echo >&2
+
+# ── Phase 6: Build & Start ──────────────────────────────────
+gum style --border rounded --border-foreground 99 --padding "0 1" --bold "Phase 6: Build & Start Selected Tools" >&2
+echo >&2
+
+if ! gum confirm "Build and start the selected stack now?"; then
+  echo >&2
+  echo "  Configuration saved to .env. You can start manually with:" >&2
+  echo >&2
+  if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
+    echo "    make build" >&2
+    echo "    make up" >&2
+  fi
+  for tool in $tools; do
+    case "$tool" in
+      opencode) : ;;  # already listed above
+      headroom)  echo "    make up-headroom" >&2 ;;
+      paperclip) echo "    make up-paperclip" >&2 ;;
+      openclaw)  echo "    make up-openclaw  # run 'make openclaw-onboard' first!" >&2 ;;
+      hermes)    echo "    make up-hermes" >&2 ;;
+      caddy)     echo "    make up-tls" >&2 ;;
+      ollama|lmstudio|llamacpp) : ;;
+    esac
+  done
+  if echo "$tools" | grep -qE '(^|[[:space:]])(ollama|lmstudio|llamacpp)($|[[:space:]])'; then
+    echo "    make up-local-models" >&2
+  fi
+  echo >&2
+  exit 0
+fi
+
+echo >&2
+if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
+  gum spin --spinner line --title "Building opencode image…" -- make build 2>&1 | tail -3
+fi
+
+for tool in $tools; do
+  case "$tool" in
+    opencode)
+      echo >&2
+      gum spin --spinner line --title "Starting opencode…" -- make up 2>&1 | tail -3
+      echo >&2
+      if gum confirm "Configure subscription providers (GitHub Copilot, ChatGPT Plus, Claude Pro, OpenCode Go, OpenCode Zen) via OAuth login?"; then
+        echo >&2
+        make auth-opencode 2>&1 || warn "opencode auth login interrupted — run 'make auth-opencode' later"
+      fi
+      ;;
+    headroom)
+      echo >&2
+      gum spin --spinner line --title "Starting Headroom…" -- HEADROOM_ENABLED=1 make up-headroom 2>&1 | tail -3
+      ;;
+    paperclip)
+      echo >&2
+      gum spin --spinner line --title "Starting Paperclip…" -- make up-paperclip 2>&1 | tail -3
+      echo >&2
+      if gum confirm "Open Paperclip board in your browser to sign in / configure OAuth?"; then
+        echo >&2
+        make auth-paperclip 2>&1 || warn "Paperclip auth not configured — run 'make auth-paperclip' later"
+      fi
+      ;;
+    openclaw)
+      echo >&2
+      warn "First run needs onboarding. Running 'make openclaw-onboard'…"
+      gum spin --spinner line --title "Running OpenClaw onboarding…" -- make openclaw-onboard 2>&1 | tail -5
+      gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3
+      echo >&2
+      if gum confirm "Open OpenClaw Control UI to configure channel auth (WhatsApp/Telegram/Discord)?"; then
+        echo >&2
+        make auth-openclaw 2>&1 || warn "OpenClaw auth not configured — run 'make auth-openclaw' later"
+      fi
+      ;;
+    hermes)
+      echo >&2
+      gum spin --spinner line --title "Starting Hermes…" -- make up-hermes 2>&1 | tail -3
+      echo >&2
+      if gum confirm "Open Hermes dashboard to configure auth?"; then
+        echo >&2
+        make auth-hermes 2>&1 || warn "Hermes auth not configured — run 'make auth-hermes' later"
+      fi
+      ;;
+    caddy)
+      domain=$(get_env OPENCODE_DOMAIN)
+      if [[ -z "$domain" ]]; then
+        warn "Caddy needs OPENCODE_DOMAIN in .env — skipped."
+        warn "Set it and run: make up-tls"
+      else
+        echo >&2
+        gum spin --spinner line --title "Starting Caddy with HTTPS for $domain…" -- make up-tls 2>&1 | tail -3
+      fi
+      ;;
+  esac
+done
+
+if echo "$tools" | grep -qE '(^|[[:space:]])(ollama|lmstudio|llamacpp)($|[[:space:]])'; then
+  echo >&2
+  gum spin --spinner line --title "Starting local model servers…" -- make up-local-models 2>&1 | tail -5
+fi
+
+echo >&2
+
+# ── Phase 7: Summary ────────────────────────────────────────
+gum style --border double --border-foreground 2 --padding "1 2" --align center \
+  "✅  eyrie-flock — Onboarding Complete!  ✅" >&2
+
+port=$(get_env PORT);        [[ -z "$port" ]] && port=4096
+bind=$(get_env BIND_ADDR);   [[ -z "$bind" ]] && bind="127.0.0.1"
+pass=$(get_env OPENCODE_SERVER_PASSWORD)
+usern=$(get_env OPENCODE_SERVER_USERNAME); [[ -z "$usern" ]] && usern="opencode"
+
+[[ "$bind" == "127.0.0.1" ]] && host="localhost" || host="$bind"
+
+echo >&2
+gum style --bold "Running services:" >&2
+if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
+  echo "    • opencode  →  http://${host}:${port}" >&2
+fi
+for tool in $tools; do
+  case "$tool" in
+    headroom)  echo "    • Headroom  →  http://localhost:8787" >&2 ;;
+    paperclip) echo "    • Paperclip →  http://localhost:$(get_env PAPERCLIP_PORT || echo 3100)" >&2 ;;
+    openclaw)  echo "    • OpenClaw  →  http://localhost:$(get_env OPENCLAW_GATEWAY_PORT || echo 18789)" >&2 ;;
+    hermes)    echo "    • Hermes    →  http://localhost:$(get_env HERMES_PORT || echo 8642)" >&2 ;;
+    caddy)
+      domain=$(get_env OPENCODE_DOMAIN)
+      [[ -n "$domain" ]] && echo "    • Caddy     →  https://${domain}" >&2
+      ;;
+    ollama)    echo "    • Ollama    →  http://localhost:$(get_env OLLAMA_PORT || echo 11434)" >&2 ;;
+    lmstudio)  echo "    • LM Studio →  http://localhost:$(get_env LMSTUDIO_PORT || echo 1234)" >&2 ;;
+    llamacpp)  echo "    • llama.cpp →  http://localhost:$(get_env LLAMACPP_PORT || echo 8080)" >&2 ;;
+  esac
+done
+
+echo >&2
+if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
+  gum style --bold "Credentials:" >&2
+  echo "    User:  ${usern}" >&2
+  if [[ -n "$pass" ]]; then
+    echo "    Pass:  ${pass:0:8}…  (full password in .env)" >&2
+  else
+    echo "    Pass:  (none — set OPENCODE_SERVER_PASSWORD in .env)" >&2
+  fi
+  echo >&2
+fi
+
+gum style --bold "Next steps:" >&2
+echo "    1. Run 'make auth' to configure OAuth/login for all tools:" >&2
+if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
+  echo "       • opencode:    'make auth-opencode'   (Copilot, ChatGPT Plus, etc.)" >&2
+fi
+if echo "$tools" | grep -qE '(^|[[:space:]])paperclip($|[[:space:]])'; then
+  echo "       • Paperclip:  'make auth-paperclip'   (sign in / OAuth in the board)" >&2
+fi
+if echo "$tools" | grep -qE '(^|[[:space:]])openclaw($|[[:space:]])'; then
+  echo "       • OpenClaw:   'make auth-openclaw'    (channel auth in Control UI)" >&2
+fi
+if echo "$tools" | grep -qE '(^|[[:space:]])hermes($|[[:space:]])'; then
+  echo "       • Hermes:     'make auth-hermes'      (sign in / auth in dashboard)" >&2
+fi
+echo "       Agent CLIs:  'make auth-claude-code' (Claude Code subscription)" >&2
+echo >&2
+echo "    2. Open the opencode web UI at the URL above." >&2
+echo "    3. Run /models to pick your model." >&2
+echo "    4. Configure providers on the /connect page." >&2
+step=5
+echo "    ${step}. Git SSH key — add this public key to GitHub:" >&2
+echo >&2
+sed 's/^/      /' ssh/id_ed25519.pub 2>/dev/null || echo "      (see ./ssh/id_ed25519.pub)" >&2
+echo >&2
+gum style --foreground 240 --faint "Config saved in .env — edit it anytime and restart with 'make down && make <tool>'" >&2
+echo >&2
+
+gum style --bold "SSH Public Key (add to GitHub → Settings → SSH keys):" >&2
+echo >&2
+cat ssh/id_ed25519.pub 2>/dev/null || echo "  (not found)" >&2
+echo >&2
+gum style --foreground 240 --faint "────────────────────────────────────────────────────────────────" >&2
+echo >&2

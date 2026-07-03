@@ -1,0 +1,126 @@
+# Adds agent CLI tools (Claude Code, Codex, …) on the eyrie-flock network.
+# These are one-off containers you `run` to execute AI coding commands on your
+# projects. Works standalone or alongside opencode:
+#
+#   docker compose -f docker-compose.opencode.yml \
+#                  -f docker-compose.agents.yml run --rm claude-code <args>
+#   (or: make claude-code ARGS="write a README")
+#
+# How it hooks in:
+#   * Shares the eyrie-flock Docker network so Claude Code can reach Headroom
+#     at http://headroom:8787 (when the Headroom overlay is active) or opencode
+#     at http://opencode:4096.
+#   * Mounts the same ./projects, ./ssh, and optional ./data volumes as opencode.
+#   * Auth (API keys) comes from .env — same keys opencode already uses.
+#
+# Notes:
+#   * All services use profile: cli — they are NOT started by `up`, only by `run`.
+#   * Build the image first:  make build-agents
+#   * Interactive use:  make claude-code / make cursor-agent (starts the REPL)
+#   * Headless/scripted use:  make claude-code ARGS="-p 'do X'"
+#                            make cursor-agent ARGS="-p -- 'do X'"
+name: eyrie-flock
+
+services:
+  claude-code:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agents
+      args:
+        CLAUDECODE_VERSION: ${CLAUDECODE_VERSION:-}
+        PUID: ${PUID:-1000}
+        PGID: ${PGID:-1000}
+    image: eyrie-flock-claude-code:latest
+    profiles: ["cli"]
+    restart: no
+    stdin_open: true
+    tty: true
+
+    environment:
+      # Provider keys — reuse the same ones opencode has in .env.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+
+      # Headroom proxy: set HEADROOM_ENABLED=1 to route through http://headroom:8787.
+      ANTHROPIC_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787/v1}
+      OPENAI_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787/v1}
+
+      # Git support (optional).
+      GH_TOKEN: ${GH_TOKEN:-}
+
+      # Map home so Claude Code can persist its own config.
+      HOME: /home/node
+
+    volumes:
+      # Project files the agent works on.
+      - ../projects:/projects
+      # SSH key for git operations (read-only).
+      - ${SSH_DIR:-../ssh}:/home/node/.ssh:ro
+      # Optional: persist Claude Code's own state (config, sessions).
+      - claude_code_data:/home/node
+
+    working_dir: /projects
+
+  # ── Cursor Agent (agent CLI) ─────────────────────────────────────────
+  cursor-agent:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.agents
+      args:
+        PUID: ${PUID:-1000}
+        PGID: ${PGID:-1000}
+    image: eyrie-flock-claude-code:latest
+    profiles: ["cli"]
+    restart: no
+    stdin_open: true
+    tty: true
+
+    # Override the default entrypoint (claude) → cursor agent binary.
+    entrypoint: ["agent"]
+
+    environment:
+      # Auth — set CURSOR_API_KEY in .env (get it from cursor.com/settings).
+      CURSOR_API_KEY: ${CURSOR_API_KEY:-}
+      # Provider keys the agent may need.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      HF_TOKEN: ${HF_TOKEN:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      # Headroom proxy support.
+      ANTHROPIC_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787/v1}
+      OPENAI_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787/v1}
+      # Git support.
+      GH_TOKEN: ${GH_TOKEN:-}
+      HOME: /home/node
+
+    volumes:
+      - ../projects:/projects
+      - ${SSH_DIR:-../ssh}:/home/node/.ssh:ro
+      - agent_home:/home/node
+
+    working_dir: /projects
+
+volumes:
+  claude_code_data:
+  # Shared volume for agent CLIs that persist state (Claude Code, Cursor, …).
+  agent_home:

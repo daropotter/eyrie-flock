@@ -1,0 +1,13 @@
+# Optional GPU passthrough for Ollama (NVIDIA Container Toolkit required).
+# Activated automatically by `make up-local-models` when OLLAMA_USE_GPU=1.
+name: eyrie-flock
+
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
