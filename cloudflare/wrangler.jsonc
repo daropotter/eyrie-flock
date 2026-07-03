@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "opencode",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // The container image is built from the Dockerfile in this directory.
+  // instance_type "basic" = 1 GiB RAM / 0.25 vCPU / 4 GB disk.
+  // opencode idles at ~320 MiB, so "lite" (256 MiB) is too small.
+  "containers": [
+    {
+      "class_name": "OpenCode",
+      "image": "./Dockerfile",
+      "max_instances": 1,
+      "instance_type": "basic"
+    }
+  ],
+
+  // The Container class is backed by a Durable Object.
+  "durable_objects": {
+    "bindings": [{ "class_name": "OpenCode", "name": "OPENCODE" }]
+  },
+  "migrations": [{ "new_sqlite_classes": ["OpenCode"], "tag": "v1" }],
+
+  // Non-secret defaults. Secrets (passwords, R2 + provider keys) are set with
+  // `wrangler secret put ...` — see README.md. Do NOT put secrets here.
+  "vars": {
+    "OPENCODE_SERVER_USERNAME": "opencode",
+    "SYNC_INTERVAL": "60"
+  }
+}

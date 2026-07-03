@@ -1,0 +1,7 @@
+.env
+config/
+data/
+projects/
+cloudflare/
+.git/
+README.md

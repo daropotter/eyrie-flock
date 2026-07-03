@@ -1,0 +1,197 @@
+#cloud-config
+# Hetzner Cloud "Cloud config" for the eyrie-flock stack.
+# Paste this into the Cloud config field when creating the server.
+#
+# 🔧 BEFORE PASTING — edit these files further down:
+#   1. /etc/eyrie-flock-repo   → YOUR git repo URL (or leave empty & rsync after boot)
+#   2. /etc/eyrie-flock-domain  → (optional) domain for Caddy HTTPS
+#   3. /etc/eyrie-flock-email   → (optional) ACME email for cert expiry notices
+#
+# ⚠️ Do NOT put API keys or passwords here — user-data is readable from instance
+#    metadata. All secrets are auto-generated on first boot and printed to console.
+
+# --- User + SSH key ---------------------------------------------------------
+users:
+  - name: claw
+    groups: [sudo, docker]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      # 🔧 REPLACE with your public SSH key before pasting
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA.... your-key-here
+
+# --- SSH hardening ----------------------------------------------------------
+ssh_pwauth: false
+disable_root: true
+
+# --- Base packages ----------------------------------------------------------
+package_update: true
+package_upgrade: true
+packages:
+  - ca-certificates
+  - curl
+  - git
+  - make
+  - rsync
+  - ufw
+  - fail2ban
+
+write_files:
+  # 🔧 EDIT THIS: paste your eyrie-flock git repo URL
+  - path: /etc/eyrie-flock-repo
+    owner: root:root
+    permissions: '0644'
+    content: |
+      https://github.com/daropotter/eyrie-flock.git
+
+  # 🔧 EDIT THIS: (optional) domain for Caddy HTTPS
+  - path: /etc/eyrie-flock-domain
+    owner: root:root
+    permissions: '0644'
+    content: ""
+
+  # 🔧 EDIT THIS: (optional) ACME email
+  - path: /etc/eyrie-flock-email
+    owner: root:root
+    permissions: '0644'
+    content: ""
+
+  # Harden sshd: key-only, no root login.
+  - path: /etc/ssh/sshd_config.d/99-hardening.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+
+  # Bootstrap script — clones the repo (or uses existing dir), configures .env,
+  # builds images, and starts the full stack. Prints credentials at the end.
+  - path: /home/claw/bootstrap-eyrie-flock.sh
+    owner: claw:claw
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+
+      cd /home/claw
+
+      # --- Clone or verify project -------------------------------------------
+      if [ -d eyrie-flock ]; then
+        echo "Project directory exists — skipping clone."
+      elif [ -s /etc/eyrie-flock-repo ]; then
+        REPO_URL=$(cat /etc/eyrie-flock-repo)
+        echo "Cloning from $REPO_URL ..."
+        git clone "$REPO_URL" eyrie-flock
+      else
+        echo "============================================================"
+        echo "  /etc/eyrie-flock-repo is empty and eyrie-flock/ is missing."
+        echo ""
+        echo "  rsync the project from your machine:"
+        echo "    rsync -av --exclude node_modules --exclude .git \\"
+        echo "      ./eyrie-flock/ claw@SERVER_IP:/home/claw/eyrie-flock/"
+        echo ""
+        echo "  Then SSH in and run:"
+        echo "    /home/claw/bootstrap-eyrie-flock.sh"
+        echo "============================================================"
+        exit 1
+      fi
+
+      cd eyrie-flock
+
+      # --- Initial setup (.env, dirs, SSH key) --------------------------------
+      make setup
+
+      # --- Configure .env -----------------------------------------------------
+      CLAW_UID=$(id -u claw)
+      CLAW_GID=$(id -g claw)
+      sed -i "s/^PUID=.*/PUID=$CLAW_UID/" .env
+      sed -i "s/^PGID=.*/PGID=$CLAW_GID/" .env
+
+      # Generate a random password if empty
+      if grep -q '^OPENCODE_SERVER_PASSWORD=$' .env; then
+        OPENCODE_PASS=$(openssl rand -base64 16)
+        sed -i "s|^OPENCODE_SERVER_PASSWORD=.*|OPENCODE_SERVER_PASSWORD=$OPENCODE_PASS|" .env
+      fi
+
+      # Domain configured?
+      DOMAIN=""
+      if [ -s /etc/eyrie-flock-domain ]; then
+        DOMAIN=$(cat /etc/eyrie-flock-domain)
+        sed -i "s/^OPENCODE_DOMAIN=.*/OPENCODE_DOMAIN=$DOMAIN/" .env
+        if [ -s /etc/eyrie-flock-email ]; then
+          EMAIL=$(cat /etc/eyrie-flock-email)
+          sed -i "s/^ACME_EMAIL=.*/ACME_EMAIL=$EMAIL/" .env
+        fi
+      fi
+
+      # --- Build images -------------------------------------------------------
+      echo "Building Docker images ..."
+      make build
+
+      # --- Start the full stack -----------------------------------------------
+      echo "Starting opencode + Paperclip + OpenClaw ..."
+      make up-all
+
+      # If a domain was provided, start Caddy + open firewall
+      if [ -n "$DOMAIN" ]; then
+        echo "Starting Caddy with HTTPS for $DOMAIN ..."
+        sudo ufw allow 80/tcp
+        sudo ufw allow 443/tcp
+        sudo ufw allow 443/udp
+        sudo ufw --force reload
+        make up-tls
+      fi
+
+      # --- Print summary ------------------------------------------------------
+      SERVER_IP=$(curl -s http://169.254.169.254/hetzner/v1/metadata/public-ipv4 2>/dev/null || curl -s ifconfig.me 2>/dev/null || echo "SERVER_IP")
+      OC_USER=$(grep '^OPENCODE_SERVER_USERNAME=' .env | cut -d= -f2)
+      OC_PASS=$(grep '^OPENCODE_SERVER_PASSWORD=' .env | cut -d= -f2)
+      OC_PORT=$(grep '^PORT=' .env | cut -d= -f2)
+      PP_PORT=$(grep '^PAPERCLIP_PORT=' .env | cut -d= -f2)
+      OCW_PORT=$(grep '^OPENCLAW_GATEWAY_PORT=' .env | cut -d= -f2)
+
+      echo ""
+      echo "╔══════════════════════════════════════════════════╗"
+      echo "║        🐦  eyrie-flock  —  READY!               ║"
+      echo "╠══════════════════════════════════════════════════╣"
+      echo "║                                                  ║"
+      echo "║  opencode   →  $OC_USER / $(echo "$OC_PASS" | cut -c1-8)…"
+      if [ -n "$DOMAIN" ]; then
+        echo "║  Web UI     →  https://$DOMAIN                  ║"
+      fi
+      echo "║  Direct     →  http://$SERVER_IP:$OC_PORT          ║"
+      echo "║  Paperclip  →  http://$SERVER_IP:$PP_PORT          ║"
+      echo "║  OpenClaw   →  http://$SERVER_IP:$OCW_PORT         ║"
+      echo "║                                                  ║"
+      echo "║  🔑  SAVE THIS PASSWORD:  $OC_PASS"
+      echo "║                                                  ║"
+      echo "║  Next steps:                                     ║"
+      echo "║  1. Set API keys:  make auth                     ║"
+      echo "║  2. Visit Web UI and log in                       ║"
+      echo "╚══════════════════════════════════════════════════╝"
+      echo ""
+
+runcmd:
+  # --- Install Docker Engine + compose plugin (official repo) ---------------
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - >
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc]
+    https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable"
+    > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable --now docker
+
+  # --- Firewall: SSH only by default ---------------------------------------
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow OpenSSH
+  - ufw --force enable
+
+  - systemctl restart ssh || systemctl restart sshd
+
+  # --- Run the bootstrap ----------------------------------------------------
+  - su - claw -c /home/claw/bootstrap-eyrie-flock.sh
+
+final_message: "cloud-init finished. eyrie-flock stack should be starting up — check the console output above for credentials."

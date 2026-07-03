@@ -1,0 +1,112 @@
+# Adds OpenClaw (https://openclaw.ai) — the always-on AI-agent gateway that
+# connects agents to chat channels (WhatsApp, Telegram, Discord, Signal, …) and
+# dispatches agent sessions. Use together with the base file:
+#
+#   docker compose -f docker-compose.opencode.yml -f docker-compose.openclaw.yml up -d
+#   (or: make up-openclaw)
+#
+# First-time flow (run once, then `make up-openclaw`):
+#   make openclaw-onboard   # generates config + auth secret, sets bind/origins
+#
+# How it hooks in:
+#   * The `openclaw` gateway serves its Control UI on port 18789 (bridge 18790),
+#     bound to BIND_ADDR (127.0.0.1 by default) like opencode.
+#   * State/config/workspace persist in named volumes.
+#   * host.docker.internal is mapped so bundled local-model providers can reach
+#     a host-side Ollama / LM Studio.
+#   * `openclaw-cli` (profile: cli) is a post-start tool for onboarding and
+#     management; it shares the gateway's network namespace.
+#
+# Field notes: modelled on the official OpenClaw docker-compose.yml. The Control
+# UI needs the shared token (OPENCLAW_GATEWAY_TOKEN) — `make up-openclaw`
+# generates one into .env for you.
+name: eyrie-flock
+
+services:
+  openclaw:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:${OPENCLAW_VERSION:-latest}}
+    container_name: eyrie-openclaw
+    restart: unless-stopped
+    init: true
+
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      # Pin container-side paths so host .env values can't leak into the container.
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      # Shared secret for the Control UI / CLI. `make up-openclaw` fills this in.
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      TZ: ${OPENCLAW_TZ:-UTC}
+      # Provider keys — reuse the ones opencode already has in .env.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Headroom proxy: set HEADROOM_ENABLED=1 to route through http://headroom:8787.
+      # When unset/empty these evaluate to "" and SDKs fall back to their default URLs.
+      ANTHROPIC_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787}
+      OPENAI_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787/v1}
+
+    volumes:
+      - openclaw_home:/home/node/.openclaw
+      - openclaw_secrets:/home/node/.config/openclaw
+      - ${SSH_DIR:-./ssh}:/home/node/.ssh:ro
+
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${BIND_ADDR:-127.0.0.1}:${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+
+    command:
+      ["node", "dist/index.js", "gateway", "--bind", "${OPENCLAW_GATEWAY_BIND:-lan}", "--port", "18789"]
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # Post-start management / onboarding tool. Not started by `up` (profile: cli);
+  # invoked via `docker compose run` (see `make openclaw-onboard` / `openclaw-cli`).
+  openclaw-cli:
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:${OPENCLAW_VERSION:-latest}}
+    profiles: ["cli"]
+    network_mode: "service:openclaw"
+    environment:
+      HOME: /home/node
+      OPENCLAW_HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_STATE_DIR: /home/node/.openclaw
+      OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:-}
+      BROWSER: echo
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # Headroom proxy: set HEADROOM_ENABLED=1 to route through http://headroom:8787.
+      ANTHROPIC_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787}
+      OPENAI_BASE_URL: ${HEADROOM_ENABLED:+http://headroom:8787/v1}
+      TZ: ${OPENCLAW_TZ:-UTC}
+    volumes:
+      - openclaw_home:/home/node/.openclaw
+      - openclaw_secrets:/home/node/.config/openclaw
+      - ${SSH_DIR:-./ssh}:/home/node/.ssh:ro
+    stdin_open: true
+    tty: true
+    init: true
+    entrypoint: ["node", "dist/index.js"]
+
+volumes:
+  openclaw_home:
+  openclaw_secrets:

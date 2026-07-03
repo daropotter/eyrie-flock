@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Wrapper: runs the `opencode` command inside the container, from ANY directory.
+#
+# It is location-independent (resolves its own path, even via a symlink on PATH)
+# and directory-aware:
+#
+#   * If you are inside the mounted ./projects tree, it runs opencode with the
+#     matching /projects/... working dir (and reuses the running web container
+#     when it is up, so config/sessions are shared live).
+#   * Anywhere else, it starts a one-off container with the CURRENT directory
+#     bind-mounted at the same path, so `opencode` behaves like the native
+#     binary and works on whatever repo you're standing in.
+#
+# In all cases the persistent config + keys + sessions are shared via the
+# ./config and ./data volumes.
+#
+# Examples:
+#   opencode                          # TUI in the current directory
+#   cd ~/work/myrepo && opencode run "fix the tests"
+#   opencode auth login               # configure a provider/key
+#   ssh host 'cd /path && opencode run "..."'   # see README for PATH notes
+
+set -euo pipefail
+
+# Resolve the real project dir even when invoked through a symlink on PATH.
+SELF="$(readlink -f "${BASH_SOURCE[0]}")"
+DIR="$(cd "$(dirname "$SELF")/.." && pwd)"
+
+COMPOSE=(docker compose --project-directory "$DIR" -f "$DIR/docker-compose.opencode.yml")
+SERVICE="opencode"
+PROJECTS_DIR="$DIR/projects"
+cwd="$PWD"
+
+# Interactive gets -it (compose default); pipes/SSH without a tty get -T.
+tty_flag=()
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+    tty_flag=(-T)
+fi
+
+running() {
+    "${COMPOSE[@]}" ps --status running --services 2>/dev/null | grep -qx "$SERVICE"
+}
+
+# Case 1: we're inside the mounted ./projects tree -> map to /projects/...
+if [ "$cwd" = "$PROJECTS_DIR" ] || [[ "$cwd" == "$PROJECTS_DIR"/* ]]; then
+    rel="${cwd#"$PROJECTS_DIR"}"          # "" or "/subdir"
+    container_wd="/projects${rel}"
+    if running; then
+        exec "${COMPOSE[@]}" exec "${tty_flag[@]}" -w "$container_wd" "$SERVICE" opencode "$@"
+    fi
+    exec "${COMPOSE[@]}" run --rm "${tty_flag[@]}" -w "$container_wd" "$SERVICE" opencode "$@"
+fi
+
+# Case 2: any other directory -> one-off container with cwd mounted at the same path.
+exec "${COMPOSE[@]}" run --rm "${tty_flag[@]}" \
+    -v "$cwd:$cwd" -w "$cwd" \
+    "$SERVICE" opencode "$@"

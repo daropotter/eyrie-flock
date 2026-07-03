@@ -1,0 +1,33 @@
+# Adds a Caddy reverse proxy with automatic HTTPS (ACME / Let's Encrypt) in front
+# of opencode. Use together with the base file:
+#
+#   docker compose -f docker-compose.opencode.yml -f docker-compose.caddy.yml up -d
+#   (or: make up-tls)
+#
+# Requirements:
+#   * OPENCODE_DOMAIN in .env (A/AAAA record pointing at this server)
+#   * firewall open on 80/tcp (ACME + HTTP->HTTPS redirect) and 443 (tcp+udp)
+name: eyrie-flock
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: eyrie-caddy
+    restart: unless-stopped
+    depends_on:
+      - opencode
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      OPENCODE_DOMAIN: ${OPENCODE_DOMAIN:?set OPENCODE_DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

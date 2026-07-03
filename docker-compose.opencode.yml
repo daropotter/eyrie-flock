@@ -1,0 +1,59 @@
+# eyrie-flock :: opencode — the web/CLI AI coding agent.
+#
+# This is the base tool of the stack; the other tools are overlays layered on
+# top of it (they attach to this file's `opencode` service or share its network):
+#
+#   docker compose -f docker-compose.opencode.yml up -d            # opencode only
+#   docker compose -f docker-compose.opencode.yml \
+#                  -f docker-compose.paperclip.yml up -d           # + Paperclip
+#   (or use the Makefile: `make up`, `make up-paperclip`, `make up-all`, …)
+name: eyrie-flock
+
+services:
+  opencode:
+    build:
+      context: .
+      args:
+        OPENCODE_VERSION: ${OPENCODE_VERSION:-latest}
+    image: eyrie-flock-opencode:latest
+    container_name: eyrie-opencode
+    restart: unless-stopped
+
+    # Run the container as the host UID/GID so files created in ./projects,
+    # ./config and ./data are owned by you instead of root.
+    user: "${PUID:-1000}:${PGID:-1000}"
+
+    # `serve` = headless HTTP server that also serves the web UI at "/".
+    # We use `serve` instead of `web` because `web` additionally tries to open
+    # a browser (xdg-open) — pointless inside a container and it clutters logs.
+    command: ["opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
+
+    environment:
+      # Server basic-auth. SET A PASSWORD if you expose this beyond localhost!
+      OPENCODE_SERVER_USERNAME: ${OPENCODE_SERVER_USERNAME:-opencode}
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD:-}
+      # Optional: git over HTTPS + provider keys (alternative to `auth login`).
+      GH_TOKEN: ${GH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+    ports:
+      # BIND_ADDR=127.0.0.1 -> localhost only (behind a reverse proxy).
+      # BIND_ADDR=0.0.0.0   -> whole network / external (REQUIRES a password!).
+      - "${BIND_ADDR:-127.0.0.1}:${PORT:-4096}:4096"
+
+    volumes:
+      # Persistence: configuration (opencode.json, agents, MCP config...).
+      - ./config:/home/opencode/.config/opencode
+      # Persistence: API keys/auth + sessions (auth.json, opencode.db).
+      - ./data:/home/opencode/.local/share/opencode
+      # Projects / external resources opencode works on.
+      - ./projects:/projects
+      # Dedicated SSH key for git operations (read-only). `make ssh-key` generates
+      # one in ./ssh — no need to copy your personal key. Point SSH_DIR at
+      # ${HOME}/.ssh in .env if you prefer to reuse your own.
+      - ${SSH_DIR:-./ssh}:/home/opencode/.ssh:ro
+
+    working_dir: /projects

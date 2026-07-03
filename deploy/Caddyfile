@@ -1,0 +1,11 @@
+{
+	# ACME account email (optional but recommended for expiry notices).
+	email {$ACME_EMAIL}
+}
+
+# Caddy obtains + auto-renews a Let's Encrypt cert for this domain and proxies
+# to the opencode container over the internal compose network. opencode still
+# enforces its own basic auth (OPENCODE_SERVER_PASSWORD).
+{$OPENCODE_DOMAIN} {
+	reverse_proxy opencode:4096
+}

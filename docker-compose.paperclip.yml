@@ -1,0 +1,63 @@
+# Adds Paperclip (https://github.com/paperclipai/paperclip) — the AI-agent
+# control plane / task board — alongside opencode. Use together with the base
+# file:
+#
+#   docker compose -f docker-compose.opencode.yml -f docker-compose.paperclip.yml up -d
+#   (or: make up-paperclip)
+#
+# What it is:
+#   * A self-hosted control plane where agents pick up tasks (issues), run in
+#     heartbeats, comment, and coordinate. The prebuilt image ships the
+#     `claude`, `codex` AND `opencode` CLIs, so its local (process) adapters can
+#     drive agents right inside this container.
+#   * Runs the server on port 3100 and serves its web board at "/".
+#
+# How it hooks in:
+#   * Shares the compose network with opencode, so a Paperclip HTTP adapter can
+#     reach this repo's opencode server at http://opencode:4096.
+#   * State (embedded SQLite DB, uploaded assets, local secrets key, agent
+#     workspace data) lives under PAPERCLIP_HOME and persists in a named volume.
+#
+# Notes:
+#   * BETTER_AUTH_SECRET must be a stable, high-entropy string. `make up-paperclip`
+#     generates one into .env for you (PAPERCLIP_AUTH_SECRET) if it's empty.
+#   * The board is bound to BIND_ADDR (127.0.0.1 by default). Front it with a
+#     reverse proxy + TLS before exposing it beyond localhost.
+name: eyrie-flock
+
+services:
+  paperclip:
+    image: ghcr.io/paperclipai/paperclip:${PAPERCLIP_VERSION:-latest}
+    container_name: eyrie-paperclip
+    restart: unless-stopped
+
+    environment:
+      HOST: "0.0.0.0"
+      PAPERCLIP_HOME: /paperclip
+      # Match the container user to your host UID/GID so the persisted data
+      # stays writable (the image entrypoint adjusts its `node` user on start).
+      USER_UID: ${PUID:-1000}
+      USER_GID: ${PGID:-1000}
+      # Stable secret for Better Auth sessions — REQUIRED. `make up-paperclip`
+      # fills this in .env automatically when empty.
+      BETTER_AUTH_SECRET: "${PAPERCLIP_AUTH_SECRET:?set PAPERCLIP_AUTH_SECRET in .env, e.g. openssl rand -hex 32, or run make up-paperclip}"
+      # Canonical external URL for auth/callback/invite flows. Set this when you
+      # reach Paperclip on anything other than http://localhost:${PAPERCLIP_PORT}.
+      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-}
+      # Keys for Paperclip's local (process) adapters — reuse the same ones
+      # opencode already has in .env.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+    volumes:
+      - paperclip_data:/paperclip
+      # Dedicated SSH key for git operations (read-only). Reuses the same SSH_DIR
+      # as opencode.
+      - ${SSH_DIR:-./ssh}:/home/node/.ssh:ro
+
+    ports:
+      # Web board. Bound to BIND_ADDR (localhost by default) like opencode.
+      - "${BIND_ADDR:-127.0.0.1}:${PAPERCLIP_PORT:-3100}:3100"
+
+volumes:
+  paperclip_data:

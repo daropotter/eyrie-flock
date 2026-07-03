@@ -1,0 +1,66 @@
+# Adds Headroom (https://github.com/chopratejas/headroom) — a local context-
+# compression proxy — between opencode and the LLM providers, to cut token
+# usage (typically 40–95% fewer input tokens for the same answers). Use it
+# together with the base file:
+#
+#   docker compose -f docker-compose.opencode.yml -f docker-compose.headroom.yml up -d
+#   (or: make up-headroom)
+#
+# How it hooks in:
+#   * The `headroom` service runs `headroom proxy` on port 8787.
+#   * opencode is pointed at the proxy via OPENCODE_CONFIG_CONTENT — an inline
+#     config layer that overrides the Anthropic/OpenAI provider baseURL ONLY
+#     while this overlay is active. Nothing in your persisted ./config changes.
+#   * opencode reaches the proxy over the compose network at http://headroom:8787.
+#
+# Notes:
+#   * Only the anthropic + openai providers are routed (Headroom auto-detects
+#     the upstream from the request). Other providers (openrouter, gemini, …)
+#     keep talking to their APIs directly.
+#   * Live savings dashboard / direct access: http://localhost:8787 (localhost
+#     only). Set HEADROOM_OUTPUT_SHAPER=1 in .env to also trim output tokens.
+name: eyrie-flock
+
+services:
+  headroom:
+    image: ghcr.io/chopratejas/headroom:${HEADROOM_VERSION:-latest}
+    container_name: eyrie-headroom
+    restart: unless-stopped
+
+    command: ["headroom", "proxy", "--host", "0.0.0.0", "--port", "8787"]
+
+    environment:
+      HEADROOM_PORT: "8787"
+      HEADROOM_HOST: "0.0.0.0"
+      # optimize (default) | cache (keep provider prefix cache stable) | audit | passthrough
+      HEADROOM_MODE: ${HEADROOM_MODE:-optimize}
+      HEADROOM_LOG_LEVEL: ${HEADROOM_LOG_LEVEL:-INFO}
+      # Also trim what the model writes back (output tokens). 1 = on, 0 = off.
+      HEADROOM_OUTPUT_SHAPER: ${HEADROOM_OUTPUT_SHAPER:-0}
+      # Canonical state root (savings, logs, memory) — persisted in the volume.
+      HEADROOM_WORKSPACE_DIR: /data/.headroom
+      # Used when the proxy authenticates to the upstream provider itself.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+    volumes:
+      - headroom_data:/data
+
+    ports:
+      # Dashboard / direct access, localhost only. opencode does NOT use this
+      # published port — it talks to the proxy over the compose network.
+      - "127.0.0.1:${HEADROOM_PORT:-8787}:8787"
+
+  opencode:
+    depends_on:
+      - headroom
+    environment:
+      # Inline config layer merged on top of ./config: route the Anthropic and
+      # OpenAI providers through the Headroom proxy. Anthropic needs the /v1
+      # suffix (opencode calls /v1/messages); OpenAI calls /v1/chat/completions.
+      OPENCODE_CONFIG_CONTENT: >-
+        {"provider":{"anthropic":{"options":{"baseURL":"http://headroom:8787/v1"}},"openai":{"options":{"baseURL":"http://headroom:8787/v1"}}}}
+
+volumes:
+  headroom_data:
