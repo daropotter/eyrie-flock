@@ -583,7 +583,7 @@ for tool in $tools; do
       ;;
     headroom)
       echo >&2
-      gum spin --spinner line --title "Starting Headroom…" -- HEADROOM_ENABLED=1 make up-headroom 2>&1 | tail -3
+      gum spin --spinner line --title "Starting Headroom…" -- make up-headroom 2>&1 | tail -3
       ;;
     paperclip)
       echo >&2
