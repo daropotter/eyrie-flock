@@ -3,7 +3,7 @@
 # eyrie-flock — a self-hostable stack of AI-agent tools that share one Docker
 # network (project `eyrie-flock`). All tools are independent peers; compose
 # what you need and nothing more.
-F := docker compose -f
+F := docker compose --project-directory . -f
 
 # Compose files — each tool is a standalone or overlay file.
 OPENCODE := docker/docker-compose.opencode.yml
