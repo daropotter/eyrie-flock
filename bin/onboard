@@ -709,7 +709,7 @@ if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
   gum style --bold "Credentials:" >&2
   echo "    User:  ${usern}" >&2
   if [[ -n "$pass" ]]; then
-    echo "    Pass:  ${pass:0:8}…  (full password in .env)" >&2
+    echo "    Pass:  ********  (full password in .env)" >&2
   else
     echo "    Pass:  (none — set OPENCODE_SERVER_PASSWORD in .env)" >&2
   fi
