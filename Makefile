@@ -73,7 +73,12 @@ up-all: ## Start the full agent stack: opencode + Paperclip + OpenClaw (shared n
 caddy-public-urls: ## Set companion public URLs in .env for the Caddy domain
 	@domain=$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' '); \
 	if [ -n "$$domain" ]; then \
-		for pair in "PAPERCLIP_PUBLIC_URL=https://$$domain/paperclip" "HERMES_PUBLIC_URL=https://$$domain/hermes" "OPENCLAW_PUBLIC_URL=https://$$domain/openclaw"; do \
+		pclip_domain="paperclip.$$domain"; \
+		if ! grep -qE '^PAPERCLIP_DOMAIN=' .env 2>/dev/null; then \
+			echo "PAPERCLIP_DOMAIN=$$pclip_domain" >> .env; \
+			echo "  → PAPERCLIP_DOMAIN set to $$pclip_domain"; \
+		fi; \
+		for pair in "PAPERCLIP_PUBLIC_URL=https://$$pclip_domain" "HERMES_PUBLIC_URL=https://$$domain/hermes" "OPENCLAW_PUBLIC_URL=https://$$domain/openclaw"; do \
 			key=$${pair%%=*}; val=$${pair#*=}; \
 			if ! grep -qE "^$$key=" .env 2>/dev/null; then \
 				echo "$$key=$$val" >> .env; \

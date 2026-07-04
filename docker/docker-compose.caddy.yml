@@ -34,6 +34,7 @@ services:
       - "443:443/udp"
     environment:
       OPENCODE_DOMAIN: ${OPENCODE_DOMAIN:?set OPENCODE_DOMAIN in .env}
+      PAPERCLIP_DOMAIN: ${PAPERCLIP_DOMAIN:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - ../deploy/Caddyfile:/etc/caddy/Caddyfile:ro

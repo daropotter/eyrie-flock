@@ -3,15 +3,17 @@
 	email {$ACME_EMAIL}
 }
 
-# Caddy obtains + auto-renews a Let's Encrypt cert for the domain and proxies
-# to each tool over the internal compose network. Each tool still enforces its
-# own auth (e.g. OPENCODE_SERVER_PASSWORD, PAPERCLIP_AUTH_SECRET, …).
+# Caddy obtains + auto-renews Let's Encrypt certs and proxies to each tool over
+# the internal compose network. Each tool still enforces its own auth
+# (e.g. OPENCODE_SERVER_PASSWORD, PAPERCLIP_AUTH_SECRET, …).
 #
 # Routing:
 #   /            → opencode (root)
-#   /paperclip/* → paperclip
+#   /paperclip/* → paperclip (subpath fallback; subdomain preferred)
 #   /hermes/*    → hermes
 #   /openclaw/*  → openclaw
+#   paperclip.<domain> → paperclip (subdomain — recommended for Paperclip
+#   since its SPA uses absolute /assets/* paths)
 {$OPENCODE_DOMAIN} {
 	handle_path /paperclip/* {
 		reverse_proxy paperclip:3100
@@ -24,4 +26,10 @@
 	}
 	# default: opencode at root
 	reverse_proxy opencode:4096
+}
+
+# Paperclip on its own subdomain (avoids /assets/* path clash with opencode).
+# Set PAPERCLIP_DOMAIN=paperclip.yourdomain.com in .env to activate.
+{$PAPERCLIP_DOMAIN} {
+	reverse_proxy paperclip:3100
 }

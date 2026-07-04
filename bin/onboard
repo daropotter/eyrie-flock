@@ -443,8 +443,9 @@ for tool in $tools; do
         echo >&2
         # Auto-set public URLs for selected companion tools
         if echo "$tools" | grep -qE '(^|[[:space:]])paperclip($|[[:space:]])'; then
-          set_env PAPERCLIP_PUBLIC_URL "https://${domain}/paperclip"
-          echo "  → Paperclip:  https://${domain}/paperclip/" >&2
+          set_env PAPERCLIP_DOMAIN "paperclip.${domain}"
+          set_env PAPERCLIP_PUBLIC_URL "https://paperclip.${domain}"
+          echo "  → Paperclip:  https://paperclip.${domain}/" >&2
         fi
         if echo "$tools" | grep -qE '(^|[[:space:]])hermes($|[[:space:]])'; then
           set_env HERMES_PUBLIC_URL "https://${domain}/hermes"
