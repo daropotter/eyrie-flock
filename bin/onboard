@@ -632,8 +632,9 @@ for tool in $tools; do
     openclaw)
       echo >&2
       if [[ "${_openclaw_onboarded:-false}" != true ]]; then
-        warn "First run needs onboarding. Running 'make openclaw-onboard'…"
-        gum spin --spinner line --title "Running OpenClaw onboarding…" -- make openclaw-onboard 2>&1 | tail -5
+        echo "  Running OpenClaw onboarding (follow the prompts)…" >&2
+        echo >&2
+        make openclaw-onboard 2>&1
       fi
       gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3
       echo >&2
