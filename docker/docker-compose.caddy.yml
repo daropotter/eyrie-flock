@@ -40,18 +40,6 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
-# Tell each companion its public URL so OAuth callbacks, invite flows, and
-# redirects resolve correctly through the path prefix.
-  paperclip:
-    environment:
-      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-https://${OPENCODE_DOMAIN}/paperclip}
-  hermes:
-    environment:
-      HERMES_PUBLIC_URL: ${HERMES_PUBLIC_URL:-https://${OPENCODE_DOMAIN}/hermes}
-  openclaw:
-    environment:
-      OPENCLAW_PUBLIC_URL: ${OPENCLAW_PUBLIC_URL:-https://${OPENCODE_DOMAIN}/openclaw}
-
 volumes:
   caddy_data:
   caddy_config:

@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# paperclip-onboard — First-run onboard for Paperclip inside the container.
+# Called by `make paperclip-onboard`. Ensures authenticated mode + 0.0.0.0 host.
+#
+set -euo pipefail
+
+CONFIG=/paperclip/instances/default/config.json
+
+# Run onboard if config doesn't exist yet
+if [ ! -f "$CONFIG" ]; then
+  echo "  → Onboarding Paperclip..."
+  pnpm paperclipai onboard --data-dir /paperclip --bind lan -y >/dev/null 2>&1
+fi
+
+if [ ! -f "$CONFIG" ]; then
+  echo "  → Paperclip: config still not found after onboard"
+  exit 1
+fi
+
+# Patch server settings
+python3 -c "
+import json
+c = json.load(open('$CONFIG'))
+srv = c.setdefault('server', {})
+srv['deploymentMode'] = 'authenticated'
+srv['bind'] = 'lan'
+srv['host'] = '0.0.0.0'
+json.dump(c, open('$CONFIG', 'w'), indent=4)
+"
+echo "  → Paperclip: deploymentMode=authenticated, bind=lan, host=0.0.0.0"

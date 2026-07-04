@@ -61,7 +61,7 @@ password_with_confirm() {
     p1=$(gum input --password --header "$label (blank = auto-generate)" --width 60) || true
     if [[ -z "$p1" ]]; then
       if [[ "$auto" == true ]]; then
-        printf -v "$var" '%s' "$(gen_secret | cut -c1-24)"
+        printf -v "$var" '%s' "$(gen_secret | cut -c1-32)"
         PASS_WAS_AUTO=true
         return 0
       fi
@@ -579,8 +579,21 @@ if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
   gum spin --spinner line --title "Building opencode image…" -- make build 2>&1 | tail -3
 fi
 
+# Start Caddy first (reverse proxy needs to be up before the services behind it)
+if echo "$tools" | grep -qE '(^|[[:space:]])caddy($|[[:space:]])'; then
+  domain=$(get_env OPENCODE_DOMAIN)
+  if [[ -z "$domain" ]]; then
+    warn "Caddy needs OPENCODE_DOMAIN in .env — skipped."
+    warn "Set it and run: make up-tls"
+  else
+    echo >&2
+    gum spin --spinner line --title "Starting Caddy with HTTPS for $domain…" -- make up-tls 2>&1 | tail -3
+  fi
+fi
+
 for tool in $tools; do
   case "$tool" in
+    caddy) : ;;  # already started above
     opencode)
       echo >&2
       gum spin --spinner line --title "Starting opencode…" -- make up 2>&1 | tail -3
@@ -596,7 +609,20 @@ for tool in $tools; do
       ;;
     paperclip)
       echo >&2
-      gum spin --spinner line --title "Starting Paperclip…" -- make up-paperclip 2>&1 | tail -3
+      gum spin --spinner line --title "Starting Paperclip…" -- make up-paperclip 2>&1 | tail -5
+      echo >&2
+      if gum confirm "Generate a one-time admin invite URL for first-user sign-in?"; then
+        echo >&2
+        base_url=$(get_env PAPERCLIP_PUBLIC_URL)
+        [[ -z "$base_url" ]] && base_url="http://localhost:$(get_env PAPERCLIP_PORT || echo 3100)"
+        invite=$(make --no-print-directory paperclip-bootstrap-ceo 2>/dev/null) || true
+        if [[ -n "$invite" ]]; then
+          gum style --foreground 2 --bold "Admin invite URL:"
+          echo "  $invite" >&2
+        else
+          warn "Could not generate invite — run 'make paperclip-bootstrap-ceo' later"
+        fi
+      fi
       echo >&2
       if gum confirm "Open Paperclip board in your browser to sign in / configure OAuth?"; then
         echo >&2
@@ -623,16 +649,6 @@ for tool in $tools; do
       if gum confirm "Open Hermes dashboard to configure auth?"; then
         echo >&2
         make auth-hermes 2>&1 || warn "Hermes auth not configured — run 'make auth-hermes' later"
-      fi
-      ;;
-    caddy)
-      domain=$(get_env OPENCODE_DOMAIN)
-      if [[ -z "$domain" ]]; then
-        warn "Caddy needs OPENCODE_DOMAIN in .env — skipped."
-        warn "Set it and run: make up-tls"
-      else
-        echo >&2
-        gum spin --spinner line --title "Starting Caddy with HTTPS for $domain…" -- make up-tls 2>&1 | tail -3
       fi
       ;;
   esac

@@ -22,7 +22,7 @@ PREFIX ?= $(HOME)/.local/bin
 BIN_NAME ?= opencode
 SSH_DIR_LOCAL ?= ssh
 
-.PHONY: help onboard setup ssh-key build build-agents up up-all up-tls up-tls-all up-headroom up-headroom-all up-paperclip paperclip-secret up-openclaw openclaw-onboard openclaw-token openclaw-cli up-hermes down-hermes claude-code cursor-agent down down-tls down-tls-all down-headroom down-headroom-all down-paperclip down-openclaw restart logs ps shell auth auth-opencode auth-claude-code auth-paperclip auth-openclaw auth-hermes oc pull update install uninstall up-local-models down-local-models ollama-pull lmstudio-pull
+.PHONY: help onboard setup ssh-key build build-agents up up-all up-tls up-tls-all up-headroom up-headroom-all up-paperclip paperclip-secret paperclip-onboard paperclip-bootstrap-ceo caddy-public-urls up-openclaw openclaw-onboard openclaw-token openclaw-cli up-hermes down-hermes claude-code cursor-agent down down-tls down-tls-all down-headroom down-headroom-all down-paperclip down-openclaw restart logs ps shell auth auth-opencode auth-claude-code auth-paperclip auth-openclaw auth-hermes oc pull update install uninstall up-local-models down-local-models ollama-pull lmstudio-pull
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -64,18 +64,38 @@ up-all: ## Start the full agent stack: opencode + Paperclip + OpenClaw (shared n
 	@$(MAKE) --no-print-directory paperclip-secret
 	@$(MAKE) --no-print-directory openclaw-token
 	$(F) $(OPENCODE) -f $(PAPERCLIP) -f $(OPENCLAW) up -d
+	@sleep 2
+	@$(MAKE) --no-print-directory paperclip-onboard
 	@echo "opencode:  http://localhost:$$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 4096)"
 	@echo "Paperclip: http://localhost:$$(grep -E '^PAPERCLIP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 3100)"
 	@echo "OpenClaw:  http://localhost:$$(grep -E '^OPENCLAW_GATEWAY_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 18789)"
 
+caddy-public-urls: ## Set companion public URLs in .env for the Caddy domain
+	@domain=$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' '); \
+	if [ -n "$$domain" ]; then \
+		for pair in "PAPERCLIP_PUBLIC_URL=https://$$domain/paperclip" "HERMES_PUBLIC_URL=https://$$domain/hermes" "OPENCLAW_PUBLIC_URL=https://$$domain/openclaw"; do \
+			key=$${pair%%=*}; val=$${pair#*=}; \
+			if ! grep -qE "^$$key=" .env 2>/dev/null; then \
+				echo "$$key=$$val" >> .env; \
+				echo "  → $$key set to $$val"; \
+			fi; \
+		done; \
+	else \
+		echo "  → OPENCODE_DOMAIN not set — public URLs not configured"; \
+	fi
+
 up-tls: ## Start opencode with Caddy + automatic HTTPS (needs OPENCODE_DOMAIN in .env)
+	@$(MAKE) --no-print-directory caddy-public-urls
 	$(F) $(OPENCODE) -f $(CADDY) up -d
 	@echo "Web: https://$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')/"
 
 up-tls-all: ## Start the full agent stack with Caddy + HTTPS
+	@$(MAKE) --no-print-directory caddy-public-urls
 	@$(MAKE) --no-print-directory paperclip-secret
 	@$(MAKE) --no-print-directory openclaw-token
 	$(F) $(OPENCODE) -f $(CADDY) -f $(PAPERCLIP) -f $(HERMES) -f $(OPENCLAW) up -d
+	@sleep 2
+	@$(MAKE) --no-print-directory paperclip-onboard
 	@domain=$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' '); \
 	echo "opencode:  https://$$domain/"; \
 	echo "Paperclip: https://$$domain/paperclip/"; \
@@ -91,6 +111,8 @@ up-headroom-all: ## Start full agent stack with Headroom (opencode + Paperclip +
 	@$(MAKE) --no-print-directory paperclip-secret
 	@$(MAKE) --no-print-directory openclaw-token
 	HEADROOM_ENABLED=1 $(F) $(OPENCODE) -f $(PAPERCLIP) -f $(OPENCLAW) -f $(HEADROOM) up -d
+	@sleep 2
+	@$(MAKE) --no-print-directory paperclip-onboard
 	@echo "opencode:  http://localhost:$$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 4096)"
 	@echo "Paperclip: http://localhost:$$(grep -E '^PAPERCLIP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 3100)"
 	@echo "OpenClaw:  http://localhost:$$(grep -E '^OPENCLAW_GATEWAY_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 18789)"
@@ -105,6 +127,8 @@ down-headroom-all: ## Stop full agent stack + Headroom
 up-paperclip: ## Start Paperclip agent control plane (standalone on port 3100)
 	@$(MAKE) --no-print-directory paperclip-secret
 	$(F) $(PAPERCLIP) up -d
+	@sleep 2
+	@$(MAKE) --no-print-directory paperclip-onboard
 	@echo "Paperclip board: http://localhost:$$(grep -E '^PAPERCLIP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 3100)"
 
 down-paperclip: ## Stop Paperclip
@@ -214,6 +238,18 @@ paperclip-secret: ## Ensure PAPERCLIP_AUTH_SECRET is set in .env (generates one 
 		fi; \
 		echo "Generated PAPERCLIP_AUTH_SECRET in .env"; \
 	fi
+
+paperclip-bootstrap-ceo: ## Generate a one-time admin invite URL for first-user sign-in
+	@base_url=$$(grep -E '^PAPERCLIP_PUBLIC_URL=' .env 2>/dev/null | cut -d= -f2- | tr -d ' '); \
+	[ -z "$$base_url" ] && base_url="http://localhost:$$(grep -E '^PAPERCLIP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 3100)"; \
+	docker exec eyrie-paperclip pnpm paperclipai auth bootstrap-ceo \
+		--data-dir /paperclip --base-url "$$base_url" 2>/dev/null \
+		| grep -o 'https\?://[^ ]*invite/[^ ]*' \
+		|| echo "Invite not generated — board already has an admin? Try: docker exec eyrie-paperclip pnpm paperclipai auth bootstrap-ceo --data-dir /paperclip --base-url $$base_url"
+
+paperclip-onboard: ## First-run: onboard Paperclip with authenticated mode inside the container
+	@cat bin/paperclip-onboard | docker exec -i eyrie-paperclip bash 2>/dev/null \
+		|| echo "  → Paperclip container not running (onboard skipped)"
 
 down-tls: ## Stop Caddy + opencode
 	$(F) $(OPENCODE) -f $(CADDY) down
