@@ -190,6 +190,9 @@ runcmd:
   - apt-get update
   - apt-get install -y gum
 
+  # --- Install pnpm (JavaScript package manager, standalone binary) ----------
+  - curl -fsSL https://get.pnpm.io/install.sh | sh -
+
   # --- Firewall: SSH only by default ---------------------------------------
   - ufw default deny incoming
   - ufw default allow outgoing
