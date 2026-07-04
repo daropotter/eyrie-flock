@@ -60,15 +60,16 @@ up: ## Start opencode only (detached)
 	$(F) $(OPENCODE) up -d
 	@echo "Web: http://localhost:$$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 4096)"
 
-up-all: ## Start the full agent stack: opencode + Paperclip + OpenClaw (shared network)
+up-all: ## Start the full agent stack: opencode + Paperclip + OpenClaw + Caddy (shared network)
+	@$(MAKE) --no-print-directory caddy-public-urls
 	@$(MAKE) --no-print-directory paperclip-secret
 	@$(MAKE) --no-print-directory openclaw-token
-	$(F) $(OPENCODE) -f $(PAPERCLIP) -f $(OPENCLAW) up -d
+	$(F) $(OPENCODE) -f $(CADDY) -f $(PAPERCLIP) -f $(OPENCLAW) up -d
 	@sleep 2
 	@$(MAKE) --no-print-directory paperclip-onboard
-	@echo "opencode:  http://localhost:$$(grep -E '^PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 4096)"
-	@echo "Paperclip: http://localhost:$$(grep -E '^PAPERCLIP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 3100)"
-	@echo "OpenClaw:  http://localhost:$$(grep -E '^OPENCLAW_GATEWAY_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 18789)"
+	@echo "opencode:  https://$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 'localhost:4096')"
+	@echo "Paperclip: https://$$(grep -E '^PAPERCLIP_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 'localhost:3100')"
+	@echo "OpenClaw:  https://$$(grep -E '^OPENCLAW_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 'localhost:18789')"
 
 caddy-public-urls: ## Set companion domains + public URLs in .env for Caddy domain
 	@domain=$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' '); \
