@@ -22,7 +22,7 @@ PREFIX ?= $(HOME)/.local/bin
 BIN_NAME ?= opencode
 SSH_DIR_LOCAL ?= ssh
 
-.PHONY: help onboard setup ssh-key build build-agents up up-all up-tls up-tls-all up-headroom up-headroom-all up-paperclip paperclip-secret paperclip-onboard paperclip-bootstrap-ceo caddy-public-urls up-openclaw openclaw-onboard openclaw-token openclaw-cli up-hermes down-hermes claude-code cursor-agent down down-tls down-tls-all down-headroom down-headroom-all down-paperclip down-openclaw restart logs ps shell auth auth-opencode auth-claude-code auth-paperclip auth-openclaw auth-hermes oc pull update install uninstall up-local-models down-local-models ollama-pull lmstudio-pull
+.PHONY: help onboard setup ssh-key build build-agents up up-all up-tls up-tls-all up-headroom up-headroom-all down-headroom down-headroom-all up-paperclip paperclip-secret paperclip-onboard paperclip-bootstrap-ceo caddy-public-urls up-openclaw openclaw-onboard openclaw-token openclaw-cli up-hermes down-hermes claude-code cursor-agent down down-tls down-tls-all down-paperclip down-openclaw restart logs ps shell auth auth-opencode auth-claude-code auth-paperclip auth-openclaw auth-hermes oc pull update install uninstall up-local-models down-local-models ollama-pull lmstudio-pull
 
 help: ## Show available commands
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \

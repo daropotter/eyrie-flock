@@ -408,7 +408,7 @@ make restart     # restart opencode
 make logs        # follow logs
 make ps          # container status
 make shell       # bash inside the opencode container
-make auth        # opencode auth login
+make auth        # OAuth/login for all running tools (opencode, Claude Code, Paperclip, OpenClaw, Hermes)
 make oc ARGS=    # any opencode command: make oc ARGS="run 'do X'"
 make install     # symlink `opencode` onto your PATH
 make uninstall   # remove that symlink
@@ -421,27 +421,31 @@ make update      # rebuild opencode with the latest release and restart
 - [ ] Auth secrets (`PAPERCLIP_AUTH_SECRET`, `OPENCLAW_GATEWAY_TOKEN`) are set
       before exposing those tools beyond localhost.
 - [ ] `.env`, `config/`, `data/` are gitignored (they are) — never commit keys.
-- [ ] SSH keys mounted read-only (`SSH_DIR`, defaults to `~/.ssh`).
+- [ ] SSH keys mounted read-only (`SSH_DIR`, defaults to `./ssh`).
 - [ ] Front any tool you expose publicly with TLS (`make up-tls` or your own proxy).
 
 ## Project layout
 
 ```
 eyrie-flock/
-├── Dockerfile                    # opencode image: node + opencode + git/ssh/ripgrep
-├── docker-compose.opencode.yml   # opencode (web service, volumes, ports)
-├── docker-compose.headroom.yml   # Headroom token-saving proxy (+ opencode overlay)
-├── docker-compose.paperclip.yml  # Paperclip agent control plane
-├── docker-compose.openclaw.yml   # OpenClaw agent gateway
-├── docker-compose.caddy.yml      # Caddy reverse proxy + HTTPS
-├── docker-compose.hermes.yml     # Hermes self-improving agent
-├── docker-compose.local-models.yml # Ollama, LM Studio, llama.cpp
-├── docker-compose.agents.yml     # Claude Code, Cursor Agent CLIs
+├── docker/
+│   ├── Dockerfile.opencode       # opencode image: node + opencode + git/ssh/ripgrep
+│   ├── Dockerfile.agents         # Claude Code + Cursor Agent CLI image
+│   ├── docker-compose.opencode.yml
+│   ├── docker-compose.headroom.yml
+│   ├── docker-compose.paperclip.yml
+│   ├── docker-compose.openclaw.yml
+│   ├── docker-compose.caddy.yml
+│   ├── docker-compose.hermes.yml
+│   ├── docker-compose.local-models.yml
+│   ├── docker-compose.local-models.gpu.yml
+│   ├── docker-compose.local-models.llamacpp.yml
+│   └── docker-compose.agents.yml
 ├── .env.example                  # configuration (copy to .env)
 ├── Makefile                      # shortcuts for every tool + combinations
 ├── bin/opencode                  # opencode CLI wrapper (exec/run through Docker)
 ├── bin/onboard                   # interactive setup wizard
-├── deploy/                       # VPS (Hetzner) deploy helpers
+├── deploy/                       # Caddyfile, deployment helpers
 ├── cloudflare/                   # opencode-only deploy to Cloudflare Containers
 ├── config/                       # [persistence] opencode configuration
 ├── data/                         # [persistence] opencode API keys + sessions

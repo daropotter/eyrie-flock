@@ -1,11 +1,10 @@
 # Adds a Caddy reverse proxy with automatic HTTPS (ACME / Let's Encrypt) in front
-# of opencode and its companion services using path-based routing on a single
-# domain:
+# of opencode and its companion services using per-tool subdomains:
 #
-#   /            → opencode
-#   /paperclip/* → paperclip
-#   /hermes/*    → hermes
-#   /openclaw/*  → openclaw
+#   ${OPENCODE_DOMAIN}   → opencode
+#   ${PAPERCLIP_DOMAIN}  → paperclip
+#   ${HERMES_DOMAIN}     → hermes
+#   ${OPENCLAW_DOMAIN}   → openclaw
 #
 # Requires the base services to be running alongside, e.g.:
 #
