@@ -441,22 +441,20 @@ for tool in $tools; do
         [[ -n "$acme_email" ]] && set_env ACME_EMAIL "$acme_email"
         [[ -n "$acme_email" ]] && echo "  → ACME email: $acme_email" >&2
         echo >&2
-        # Auto-set subdomains + public URLs for selected companion tools
-        if echo "$tools" | grep -qE '(^|[[:space:]])paperclip($|[[:space:]])'; then
-          set_env PAPERCLIP_DOMAIN "paperclip.${domain}"
-          set_env PAPERCLIP_PUBLIC_URL "https://paperclip.${domain}"
-          echo "  → Paperclip:  https://paperclip.${domain}/" >&2
-        fi
-        if echo "$tools" | grep -qE '(^|[[:space:]])hermes($|[[:space:]])'; then
-          set_env HERMES_DOMAIN "hermes.${domain}"
-          set_env HERMES_PUBLIC_URL "https://hermes.${domain}"
-          echo "  → Hermes:     https://hermes.${domain}/" >&2
-        fi
-        if echo "$tools" | grep -qE '(^|[[:space:]])openclaw($|[[:space:]])'; then
-          set_env OPENCLAW_DOMAIN "openclaw.${domain}"
-          set_env OPENCLAW_PUBLIC_URL "https://openclaw.${domain}"
-          echo "  → OpenClaw:   https://openclaw.${domain}/" >&2
-        fi
+        # Subdomains for companion tools — let user decide, suggest <tool>.<domain>
+        for trio in "paperclip  Paperclip  PAPERCLIP" "hermes  Hermes  HERMES" "openclaw  OpenClaw  OPENCLAW"; do
+          read -r tool_svc tool_label tool_prefix <<< "$trio"
+          if echo "$tools" | grep -qE "(^|[[:space:]])${tool_svc}($|[[:space:]])"; then
+            suggested="${tool_svc}.${domain}"
+            cur_dom=$(get_env "${tool_prefix}_DOMAIN")
+            dom=$(gum input --header "${tool_label} subdomain" --value "${cur_dom:-$suggested}" || true)
+            [[ -z "$dom" ]] && dom="$suggested"
+            set_env "${tool_prefix}_DOMAIN" "$dom"
+            set_env "${tool_prefix}_PUBLIC_URL" "https://${dom}"
+            echo "  → ${tool_label}:  https://${dom}/" >&2
+            echo >&2
+          fi
+        done
         info "Caddy configured with domain $domain"
       else
         warn "Caddy needs OPENCODE_DOMAIN — set it later in .env"
