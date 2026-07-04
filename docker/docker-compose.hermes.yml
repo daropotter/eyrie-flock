@@ -23,7 +23,7 @@ name: eyrie-flock
 
 services:
   hermes:
-    image: ghcr.io/nousresearch/hermes-agent:${HERMES_VERSION:-latest}
+    image: nousresearch/hermes-agent:${HERMES_VERSION:-latest}
     container_name: eyrie-hermes
     restart: unless-stopped
 
