@@ -134,15 +134,12 @@ up-paperclip: ## Start Paperclip agent control plane (standalone on port 3100)
 down-paperclip: ## Stop Paperclip
 	$(F) $(PAPERCLIP) down
 
-openclaw-onboard: ## First run: generate OpenClaw config + auth secret (interactive)
+openclaw-onboard: ## First run: generate OpenClaw config + auth secret
 	@$(MAKE) --no-print-directory openclaw-token
 	$(F) $(OPENCLAW) run --rm --no-deps --entrypoint node openclaw dist/index.js onboard --mode local --no-install-daemon
 	$(F) $(OPENCLAW) run --rm --no-deps --entrypoint node openclaw dist/index.js config set \
 		--batch-json '[{"path":"gateway.mode","value":"local"},{"path":"gateway.bind","value":"lan"},{"path":"gateway.controlUi.allowedOrigins","value":["http://localhost:18789","http://127.0.0.1:18789"]}]'
-	@echo "OpenClaw is configured and ready."; \
-	read -p "Start OpenClaw now? [Y/n] " ans; \
-	ans=$${ans:-Y}; \
-	case "$$ans" in [Yy]*) $(MAKE) --no-print-directory up-openclaw ;; *) echo "Start it later with: make up-openclaw" ;; esac
+	@echo "OpenClaw is configured and ready."
 
 up-openclaw: ## Start OpenClaw agent gateway (standalone, Control UI on port 18789)
 	@$(MAKE) --no-print-directory openclaw-token

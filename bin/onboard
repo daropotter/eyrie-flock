@@ -637,7 +637,7 @@ for tool in $tools; do
         echo >&2
         make openclaw-onboard 2>&1
       fi
-      gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3
+      gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3 || warn "OpenClaw failed to start — check docker logs"
       echo >&2
       if gum confirm "Open OpenClaw Control UI to configure channel auth (WhatsApp/Telegram/Discord)?"; then
         echo >&2
@@ -646,7 +646,7 @@ for tool in $tools; do
       ;;
     hermes)
       echo >&2
-      gum spin --spinner line --title "Starting Hermes…" -- make up-hermes 2>&1 | tail -3
+      gum spin --spinner line --title "Starting Hermes…" -- make up-hermes 2>&1 | tail -3 || warn "Hermes failed to start — check docker logs"
       echo >&2
       if gum confirm "Open Hermes dashboard to configure auth?"; then
         echo >&2
