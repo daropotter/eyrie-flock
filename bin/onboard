@@ -386,12 +386,7 @@ for tool in $tools; do
         [[ "$PASS_WAS_AUTO" == true ]] && info "Gateway token set (auto-generated — see .env)" || info "Gateway token set"
       fi
       info "OpenClaw configured"
-      _openclaw_onboarded=false
-      if gum confirm "Run 'make openclaw-onboard' now?" --default=true; then
-        make --no-print-directory openclaw-onboard && _openclaw_onboarded=true
-      else
-        note "Run it later: make openclaw-onboard"
-      fi
+      note "Onboarding will run before the first start (Phase 6)."
       ;;
 
     hermes)
@@ -632,11 +627,9 @@ for tool in $tools; do
       ;;
     openclaw)
       echo >&2
-      if [[ "${_openclaw_onboarded:-false}" != true ]]; then
-        echo "  Running OpenClaw onboarding (follow the prompts)…" >&2
-        echo >&2
-        make openclaw-onboard 2>&1
-      fi
+      echo "  Running OpenClaw onboarding (follow the prompts)…" >&2
+      echo >&2
+      make openclaw-onboard 2>&1
       _oc_ok=true
       gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3 || { _oc_ok=false; warn "OpenClaw failed to start — check docker logs"; }
       echo >&2
