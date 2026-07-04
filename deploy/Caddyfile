@@ -1,25 +1,27 @@
 {
-	# ACME account email (optional but recommended for expiry notices).
-	email {$ACME_EMAIL}
+    # ACME account email (optional but recommended for expiry notices).
+    email {$ACME_EMAIL}
 }
 
-# Caddy obtains + auto-renews Let's Encrypt certs and proxies to each tool over
-# the internal compose network. Each tool still enforces its own auth
-# (e.g. OPENCODE_SERVER_PASSWORD, PAPERCLIP_AUTH_SECRET, …).
-#
-# Set HERMES_DOMAIN and OPENCLAW_DOMAIN in .env to activate companion domains.
+app.fckdc.com {
+    reverse_proxy server:3001 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+}
+
 {$OPENCODE_DOMAIN} {
-	reverse_proxy opencode:4096
+    reverse_proxy opencode:4096
 }
 
 {$PAPERCLIP_DOMAIN} {
-	reverse_proxy paperclip:3100
+    reverse_proxy paperclip:3100
 }
 
 {$HERMES_DOMAIN} {
-	reverse_proxy hermes:8642
+    reverse_proxy hermes:8642
 }
 
 {$OPENCLAW_DOMAIN} {
-	reverse_proxy openclaw:18789
+    reverse_proxy openclaw:18789
 }
