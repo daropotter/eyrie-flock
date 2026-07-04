@@ -7,29 +7,25 @@
 # the internal compose network. Each tool still enforces its own auth
 # (e.g. OPENCODE_SERVER_PASSWORD, PAPERCLIP_AUTH_SECRET, …).
 #
-# Routing:
-#   /            → opencode (root)
-#   /paperclip/* → paperclip (subpath fallback; subdomain preferred)
-#   /hermes/*    → hermes
-#   /openclaw/*  → openclaw
-#   paperclip.<domain> → paperclip (subdomain — recommended for Paperclip
-#   since its SPA uses absolute /assets/* paths)
+# Routing — each tool on its own subdomain to avoid SPA /assets/* path clashes:
+#   <domain>           → opencode
+#   paperclip.<domain> → paperclip
+#   hermes.<domain>    → hermes
+#   openclaw.<domain>  → openclaw
+#
+# Set HERMES_DOMAIN and OPENCLAW_DOMAIN in .env to activate companion subdomains.
 {$OPENCODE_DOMAIN} {
-	handle_path /paperclip/* {
-		reverse_proxy paperclip:3100
-	}
-	handle_path /hermes/* {
-		reverse_proxy hermes:8642
-	}
-	handle_path /openclaw/* {
-		reverse_proxy openclaw:18789
-	}
-	# default: opencode at root
 	reverse_proxy opencode:4096
 }
 
-# Paperclip on its own subdomain (avoids /assets/* path clash with opencode).
-# Set PAPERCLIP_DOMAIN=paperclip.yourdomain.com in .env to activate.
 {$PAPERCLIP_DOMAIN} {
 	reverse_proxy paperclip:3100
+}
+
+{$HERMES_DOMAIN} {
+	reverse_proxy hermes:8642
+}
+
+{$OPENCLAW_DOMAIN} {
+	reverse_proxy openclaw:18789
 }

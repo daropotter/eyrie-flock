@@ -70,16 +70,11 @@ up-all: ## Start the full agent stack: opencode + Paperclip + OpenClaw (shared n
 	@echo "Paperclip: http://localhost:$$(grep -E '^PAPERCLIP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 3100)"
 	@echo "OpenClaw:  http://localhost:$$(grep -E '^OPENCLAW_GATEWAY_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 18789)"
 
-caddy-public-urls: ## Set companion public URLs in .env for the Caddy domain
+caddy-public-urls: ## Set companion subdomains + public URLs in .env for Caddy domain
 	@domain=$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' '); \
 	if [ -n "$$domain" ]; then \
-		pclip_domain="paperclip.$$domain"; \
-		if ! grep -qE '^PAPERCLIP_DOMAIN=' .env 2>/dev/null; then \
-			echo "PAPERCLIP_DOMAIN=$$pclip_domain" >> .env; \
-			echo "  → PAPERCLIP_DOMAIN set to $$pclip_domain"; \
-		fi; \
-		for pair in "PAPERCLIP_PUBLIC_URL=https://$$pclip_domain" "HERMES_PUBLIC_URL=https://$$domain/hermes" "OPENCLAW_PUBLIC_URL=https://$$domain/openclaw"; do \
-			key=$${pair%%=*}; val=$${pair#*=}; \
+		for entry in "PAPERCLIP_DOMAIN=paperclip.$$domain" "PAPERCLIP_PUBLIC_URL=https://paperclip.$$domain" "HERMES_DOMAIN=hermes.$$domain" "HERMES_PUBLIC_URL=https://hermes.$$domain" "OPENCLAW_DOMAIN=openclaw.$$domain" "OPENCLAW_PUBLIC_URL=https://openclaw.$$domain"; do \
+			key=$${entry%%=*}; val=$${entry#*=}; \
 			if ! grep -qE "^$$key=" .env 2>/dev/null; then \
 				echo "$$key=$$val" >> .env; \
 				echo "  → $$key set to $$val"; \
@@ -102,10 +97,10 @@ up-tls-all: ## Start the full agent stack with Caddy + HTTPS
 	@sleep 2
 	@$(MAKE) --no-print-directory paperclip-onboard
 	@domain=$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' '); \
-	echo "opencode:  https://$$domain/"; \
-	echo "Paperclip: https://$$domain/paperclip/"; \
-	echo "Hermes:    https://$$domain/hermes/"; \
-	echo "OpenClaw:  https://$$domain/openclaw/"
+	echo "opencode:   https://$$domain/"; \
+	echo "Paperclip:  https://paperclip.$$domain/"; \
+	echo "Hermes:     https://hermes.$$domain/"; \
+	echo "OpenClaw:   https://openclaw.$$domain/"
 
 up-headroom: ## Start opencode with Headroom proxy (context compression)
 	HEADROOM_ENABLED=1 $(F) $(OPENCODE) -f $(HEADROOM) up -d

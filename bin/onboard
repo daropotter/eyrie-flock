@@ -441,19 +441,21 @@ for tool in $tools; do
         [[ -n "$acme_email" ]] && set_env ACME_EMAIL "$acme_email"
         [[ -n "$acme_email" ]] && echo "  → ACME email: $acme_email" >&2
         echo >&2
-        # Auto-set public URLs for selected companion tools
+        # Auto-set subdomains + public URLs for selected companion tools
         if echo "$tools" | grep -qE '(^|[[:space:]])paperclip($|[[:space:]])'; then
           set_env PAPERCLIP_DOMAIN "paperclip.${domain}"
           set_env PAPERCLIP_PUBLIC_URL "https://paperclip.${domain}"
           echo "  → Paperclip:  https://paperclip.${domain}/" >&2
         fi
         if echo "$tools" | grep -qE '(^|[[:space:]])hermes($|[[:space:]])'; then
-          set_env HERMES_PUBLIC_URL "https://${domain}/hermes"
-          echo "  → Hermes:     https://${domain}/hermes/" >&2
+          set_env HERMES_DOMAIN "hermes.${domain}"
+          set_env HERMES_PUBLIC_URL "https://hermes.${domain}"
+          echo "  → Hermes:     https://hermes.${domain}/" >&2
         fi
         if echo "$tools" | grep -qE '(^|[[:space:]])openclaw($|[[:space:]])'; then
-          set_env OPENCLAW_PUBLIC_URL "https://${domain}/openclaw"
-          echo "  → OpenClaw:   https://${domain}/openclaw/" >&2
+          set_env OPENCLAW_DOMAIN "openclaw.${domain}"
+          set_env OPENCLAW_PUBLIC_URL "https://openclaw.${domain}"
+          echo "  → OpenClaw:   https://openclaw.${domain}/" >&2
         fi
         info "Caddy configured with domain $domain"
       else
@@ -696,9 +698,9 @@ for tool in $tools; do
       if [[ -n "$domain" ]]; then
         for ct in $tools; do
           case "$ct" in
-            paperclip) echo "    • Paperclip →  https://${domain}/paperclip/" >&2 ;;
-            hermes)    echo "    • Hermes    →  https://${domain}/hermes/" >&2 ;;
-            openclaw)  echo "    • OpenClaw  →  https://${domain}/openclaw/" >&2 ;;
+            paperclip) echo "    • Paperclip →  https://paperclip.${domain}/" >&2 ;;
+            hermes)    echo "    • Hermes    →  https://hermes.${domain}/" >&2 ;;
+            openclaw)  echo "    • OpenClaw  →  https://openclaw.${domain}/" >&2 ;;
           esac
         done
       fi
