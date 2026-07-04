@@ -1,12 +1,20 @@
 {
-    # ACME account email (optional but recommended for expiry notices).
     email {$ACME_EMAIL}
 }
 
 app.fckdc.com {
-    reverse_proxy server:3001 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
+    root * /var/www/fckdc
+
+    route {
+        @api {
+            path /api/*
+            path /uploads/*
+            path /socket.io/*
+        }
+        reverse_proxy @api server:3001
+
+        try_files {path} /index.html
+        file_server
     }
 }
 

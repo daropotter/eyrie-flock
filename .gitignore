@@ -19,3 +19,4 @@
 
 # System junk
 .DS_Store
+/.ssh
