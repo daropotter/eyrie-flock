@@ -185,12 +185,15 @@ up-local-models: ## Start enabled local model servers (Ollama / LM Studio / llam
 	fi
 	@bash bin/configure-local-providers
 	$(F) $(OPENCODE) $(local_model_files) $(local_model_profiles) up -d
-	@grep -qE '^LOCAL_OLLAMA_ENABLED=1' .env 2>/dev/null && \
-		echo "Ollama:    http://localhost:$$(grep -E '^OLLAMA_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 11434)"
-	@grep -qE '^LOCAL_LMSTUDIO_ENABLED=1' .env 2>/dev/null && \
-		echo "LM Studio: http://localhost:$$(grep -E '^LMSTUDIO_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 1234)"
-	@grep -qE '^LOCAL_LLAMACPP_ENABLED=1' .env 2>/dev/null && \
-		echo "llama.cpp: http://localhost:$$(grep -E '^LLAMACPP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 8080)"
+	@if grep -qE '^LOCAL_OLLAMA_ENABLED=1' .env 2>/dev/null; then \
+		echo "Ollama:    http://localhost:$$(grep -E '^OLLAMA_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 11434)"; \
+	fi
+	@if grep -qE '^LOCAL_LMSTUDIO_ENABLED=1' .env 2>/dev/null; then \
+		echo "LM Studio: http://localhost:$$(grep -E '^LMSTUDIO_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 1234)"; \
+	fi
+	@if grep -qE '^LOCAL_LLAMACPP_ENABLED=1' .env 2>/dev/null; then \
+		echo "llama.cpp: http://localhost:$$(grep -E '^LLAMACPP_PORT=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ' || echo 8080)"; \
+	fi
 
 down-local-models: ## Stop local model servers
 	$(F) $(OPENCODE) $(local_model_files) $(local_model_profiles) down
