@@ -70,16 +70,17 @@ up-all: ## Start the full agent stack: opencode + Paperclip + OpenClaw (shared n
 
 up-tls: ## Start opencode with Caddy + automatic HTTPS (needs OPENCODE_DOMAIN in .env)
 	$(F) $(OPENCODE) -f $(CADDY) up -d
-	@echo "Web: https://$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')"
+	@echo "Web: https://$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')/"
 
 up-tls-all: ## Start the full agent stack with Caddy + HTTPS
 	@$(MAKE) --no-print-directory paperclip-secret
 	@$(MAKE) --no-print-directory openclaw-token
 	$(F) $(OPENCODE) -f $(CADDY) -f $(PAPERCLIP) -f $(HERMES) -f $(OPENCLAW) up -d
-	@echo "opencode:  https://$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')"
-	@echo "Paperclip: https://paperclip.$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')"
-	@echo "Hermes:    https://hermes.$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')"
-	@echo "OpenClaw:  https://openclaw.$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' ')"
+	@domain=$$(grep -E '^OPENCODE_DOMAIN=' .env 2>/dev/null | cut -d= -f2 | tr -d ' '); \
+	echo "opencode:  https://$$domain/"; \
+	echo "Paperclip: https://$$domain/paperclip/"; \
+	echo "Hermes:    https://$$domain/hermes/"; \
+	echo "OpenClaw:  https://$$domain/openclaw/"
 
 up-headroom: ## Start opencode with Headroom proxy (context compression)
 	HEADROOM_ENABLED=1 $(F) $(OPENCODE) -f $(HEADROOM) up -d

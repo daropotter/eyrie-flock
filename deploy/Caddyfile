@@ -6,18 +6,22 @@
 # Caddy obtains + auto-renews a Let's Encrypt cert for the domain and proxies
 # to each tool over the internal compose network. Each tool still enforces its
 # own auth (e.g. OPENCODE_SERVER_PASSWORD, PAPERCLIP_AUTH_SECRET, …).
+#
+# Routing:
+#   /            → opencode (root)
+#   /paperclip/* → paperclip
+#   /hermes/*    → hermes
+#   /openclaw/*  → openclaw
 {$OPENCODE_DOMAIN} {
+	handle_path /paperclip/* {
+		reverse_proxy paperclip:3100
+	}
+	handle_path /hermes/* {
+		reverse_proxy hermes:8642
+	}
+	handle_path /openclaw/* {
+		reverse_proxy openclaw:18789
+	}
+	# default: opencode at root
 	reverse_proxy opencode:4096
-}
-
-paperclip.{$OPENCODE_DOMAIN} {
-	reverse_proxy paperclip:3100
-}
-
-hermes.{$OPENCODE_DOMAIN} {
-	reverse_proxy hermes:8642
-}
-
-openclaw.{$OPENCODE_DOMAIN} {
-	reverse_proxy openclaw:18789
 }

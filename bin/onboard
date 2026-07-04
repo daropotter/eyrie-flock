@@ -127,7 +127,7 @@ tools=$(gum choose --no-limit --header "Which tools do you want?" \
   "paperclip  Paperclip — AI-agent task board / control plane (port 3100)" \
   "openclaw  OpenClaw — always-on chat gateway (WhatsApp/Telegram/Discord, port 18789)" \
   "hermes  Hermes Agent — self-improving AI agent with memory (port 8642)" \
-  "caddy  Caddy — reverse proxy with automatic HTTPS (ports 80/443)" \
+  "caddy  ⭐ Caddy — reverse proxy with automatic HTTPS (ports 80/443) — HIGHLY RECOMMENDED for secure external access" \
   "ollama  Ollama — local open-model inference in Docker (port 11434)" \
   "lmstudio  LM Studio — llmster local server in Docker (port 1234)" \
   "llamacpp  llama.cpp — local GGUF inference in Docker (port 8080)" \
@@ -319,12 +319,7 @@ for tool in $tools; do
       [[ -n "${_CFG_KEYS[OPENAI_API_KEY]:-}" ]] && info "Will use shared OPENAI_API_KEY"
       echo >&2
 
-      pub_url=$(gum input --header "Public URL for auth/callbacks (empty for default, e.g. https://board.example.com)" --value "$(get_env PAPERCLIP_PUBLIC_URL)" || true)
-      if [[ -n "$pub_url" ]]; then
-        set_env PAPERCLIP_PUBLIC_URL "$pub_url"
-        echo "  → Public URL: $pub_url" >&2
-        echo >&2
-      fi
+      note "Public URL auto-derived from Caddy domain when Caddy is active"
 
       secret_changed=false
       PASS_WAS_AUTO=false
@@ -445,6 +440,20 @@ for tool in $tools; do
         acme_email=$(gum input --header "ACME email for Let's Encrypt" --value "${cur_email:-}" || true)
         [[ -n "$acme_email" ]] && set_env ACME_EMAIL "$acme_email"
         [[ -n "$acme_email" ]] && echo "  → ACME email: $acme_email" >&2
+        echo >&2
+        # Auto-set public URLs for selected companion tools
+        if echo "$tools" | grep -qE '(^|[[:space:]])paperclip($|[[:space:]])'; then
+          set_env PAPERCLIP_PUBLIC_URL "https://${domain}/paperclip"
+          echo "  → Paperclip:  https://${domain}/paperclip/" >&2
+        fi
+        if echo "$tools" | grep -qE '(^|[[:space:]])hermes($|[[:space:]])'; then
+          set_env HERMES_PUBLIC_URL "https://${domain}/hermes"
+          echo "  → Hermes:     https://${domain}/hermes/" >&2
+        fi
+        if echo "$tools" | grep -qE '(^|[[:space:]])openclaw($|[[:space:]])'; then
+          set_env OPENCLAW_PUBLIC_URL "https://${domain}/openclaw"
+          echo "  → OpenClaw:   https://${domain}/openclaw/" >&2
+        fi
         info "Caddy configured with domain $domain"
       else
         warn "Caddy needs OPENCODE_DOMAIN — set it later in .env"
@@ -648,19 +657,33 @@ usern=$(get_env OPENCODE_SERVER_USERNAME); [[ -z "$usern" ]] && usern="opencode"
 [[ "$bind" == "127.0.0.1" ]] && host="localhost" || host="$bind"
 
 echo >&2
+caddy_selected=$(echo "$tools" | grep -qE '(^|[[:space:]])caddy($|[[:space:]])' && echo 1 || true)
 gum style --bold "Running services:" >&2
 if echo "$tools" | grep -qE '(^|[[:space:]])opencode($|[[:space:]])'; then
-  echo "    • opencode  →  http://${host}:${port}" >&2
+  if [[ -n "$caddy_selected" ]]; then
+    domain=$(get_env OPENCODE_DOMAIN)
+    [[ -n "$domain" ]] && echo "    • opencode  →  https://${domain}/" >&2 || echo "    • opencode  →  http://${host}:${port}" >&2
+  else
+    echo "    • opencode  →  http://${host}:${port}" >&2
+  fi
 fi
 for tool in $tools; do
   case "$tool" in
     headroom)  echo "    • Headroom  →  http://localhost:8787" >&2 ;;
-    paperclip) echo "    • Paperclip →  http://localhost:$(get_env PAPERCLIP_PORT || echo 3100)" >&2 ;;
-    openclaw)  echo "    • OpenClaw  →  http://localhost:$(get_env OPENCLAW_GATEWAY_PORT || echo 18789)" >&2 ;;
-    hermes)    echo "    • Hermes    →  http://localhost:$(get_env HERMES_PORT || echo 8642)" >&2 ;;
+    paperclip) [[ -z "$caddy_selected" ]] && echo "    • Paperclip →  http://localhost:$(get_env PAPERCLIP_PORT || echo 3100)" >&2 ;;
+    openclaw)  [[ -z "$caddy_selected" ]] && echo "    • OpenClaw  →  http://localhost:$(get_env OPENCLAW_GATEWAY_PORT || echo 18789)" >&2 ;;
+    hermes)    [[ -z "$caddy_selected" ]] && echo "    • Hermes    →  http://localhost:$(get_env HERMES_PORT || echo 8642)" >&2 ;;
     caddy)
       domain=$(get_env OPENCODE_DOMAIN)
-      [[ -n "$domain" ]] && echo "    • Caddy     →  https://${domain}" >&2
+      if [[ -n "$domain" ]]; then
+        for ct in $tools; do
+          case "$ct" in
+            paperclip) echo "    • Paperclip →  https://${domain}/paperclip/" >&2 ;;
+            hermes)    echo "    • Hermes    →  https://${domain}/hermes/" >&2 ;;
+            openclaw)  echo "    • OpenClaw  →  https://${domain}/openclaw/" >&2 ;;
+          esac
+        done
+      fi
       ;;
     ollama)    echo "    • Ollama    →  http://localhost:$(get_env OLLAMA_PORT || echo 11434)" >&2 ;;
     lmstudio)  echo "    • LM Studio →  http://localhost:$(get_env LMSTUDIO_PORT || echo 1234)" >&2 ;;

@@ -1,9 +1,20 @@
 # Adds a Caddy reverse proxy with automatic HTTPS (ACME / Let's Encrypt) in front
-# of opencode. Requires opencode to be running alongside:
+# of opencode and its companion services using path-based routing on a single
+# domain:
+#
+#   /            → opencode
+#   /paperclip/* → paperclip
+#   /hermes/*    → hermes
+#   /openclaw/*  → openclaw
+#
+# Requires the base services to be running alongside, e.g.:
 #
 #   docker compose -f docker-compose.opencode.yml \
+#                  -f docker-compose.paperclip.yml \
+#                  -f docker-compose.hermes.yml \
+#                  -f docker-compose.openclaw.yml \
 #                  -f docker-compose.caddy.yml up -d
-#   (or: make up-tls)
+#   (or: make up-tls-all)
 #
 # Requirements:
 #   * OPENCODE_DOMAIN in .env (A/AAAA record pointing at this server)
@@ -29,11 +40,17 @@ services:
       - caddy_data:/data
       - caddy_config:/config
 
-# When Paperclip is also behind Caddy, tell it its public URL so OAuth callbacks
-# and invite flows resolve correctly.
+# Tell each companion its public URL so OAuth callbacks, invite flows, and
+# redirects resolve correctly through the path prefix.
   paperclip:
     environment:
-      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-https://paperclip.${OPENCODE_DOMAIN}}
+      PAPERCLIP_PUBLIC_URL: ${PAPERCLIP_PUBLIC_URL:-https://${OPENCODE_DOMAIN}/paperclip}
+  hermes:
+    environment:
+      HERMES_PUBLIC_URL: ${HERMES_PUBLIC_URL:-https://${OPENCODE_DOMAIN}/hermes}
+  openclaw:
+    environment:
+      OPENCLAW_PUBLIC_URL: ${OPENCLAW_PUBLIC_URL:-https://${OPENCODE_DOMAIN}/openclaw}
 
 volumes:
   caddy_data:
