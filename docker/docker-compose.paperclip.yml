@@ -57,6 +57,13 @@ services:
       # Dedicated SSH key for git operations (read-only). Reuses the same SSH_DIR
       # as opencode.
       - ${SSH_DIR:-../ssh}:/home/node/.ssh:ro
+      # ── opencode CLI config ─────────────────────────────────────────
+      # Paperclip ships opencode CLI inside its image — mount opencode's
+      # configuration, data, and projects so the CLI works with the same
+      # setup as the opencode container.
+      - ../config:/home/node/.config/opencode:ro
+      - ../data:/home/node/.local/share/opencode:ro
+      - ../projects:/projects:ro
 
     ports:
       # Web board. Bound to BIND_ADDR (localhost by default) like opencode.
