@@ -637,18 +637,20 @@ for tool in $tools; do
         echo >&2
         make openclaw-onboard 2>&1
       fi
-      gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3 || warn "OpenClaw failed to start — check docker logs"
+      _oc_ok=true
+      gum spin --spinner line --title "Starting OpenClaw…" -- make up-openclaw 2>&1 | tail -3 || { _oc_ok=false; warn "OpenClaw failed to start — check docker logs"; }
       echo >&2
-      if gum confirm "Open OpenClaw Control UI to configure channel auth (WhatsApp/Telegram/Discord)?"; then
+      if [[ "$_oc_ok" == true ]] && gum confirm "Open OpenClaw Control UI to configure channel auth (WhatsApp/Telegram/Discord)?"; then
         echo >&2
         make auth-openclaw 2>&1 || warn "OpenClaw auth not configured — run 'make auth-openclaw' later"
       fi
       ;;
     hermes)
       echo >&2
-      gum spin --spinner line --title "Starting Hermes…" -- make up-hermes 2>&1 | tail -3 || warn "Hermes failed to start — check docker logs"
+      _hermes_ok=true
+      gum spin --spinner line --title "Starting Hermes…" -- make up-hermes 2>&1 | tail -3 || { _hermes_ok=false; warn "Hermes failed to start — check docker logs"; }
       echo >&2
-      if gum confirm "Open Hermes dashboard to configure auth?"; then
+      if [[ "$_hermes_ok" == true ]] && gum confirm "Open Hermes dashboard to configure auth?"; then
         echo >&2
         make auth-hermes 2>&1 || warn "Hermes auth not configured — run 'make auth-hermes' later"
       fi
