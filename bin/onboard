@@ -441,13 +441,13 @@ for tool in $tools; do
         [[ -n "$acme_email" ]] && set_env ACME_EMAIL "$acme_email"
         [[ -n "$acme_email" ]] && echo "  → ACME email: $acme_email" >&2
         echo >&2
-        # Subdomains for companion tools — let user decide, suggest <tool>.<domain>
+        # Domains for companion tools — let user decide, suggest <tool>.<domain>
         for trio in "paperclip  Paperclip  PAPERCLIP" "hermes  Hermes  HERMES" "openclaw  OpenClaw  OPENCLAW"; do
           read -r tool_svc tool_label tool_prefix <<< "$trio"
           if echo "$tools" | grep -qE "(^|[[:space:]])${tool_svc}($|[[:space:]])"; then
             suggested="${tool_svc}.${domain}"
             cur_dom=$(get_env "${tool_prefix}_DOMAIN")
-            dom=$(gum input --header "${tool_label} subdomain" --value "${cur_dom:-$suggested}" || true)
+            dom=$(gum input --header "${tool_label} domain" --value "${cur_dom:-$suggested}" || true)
             [[ -z "$dom" ]] && dom="$suggested"
             set_env "${tool_prefix}_DOMAIN" "$dom"
             set_env "${tool_prefix}_PUBLIC_URL" "https://${dom}"
