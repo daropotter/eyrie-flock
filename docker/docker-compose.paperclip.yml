@@ -37,6 +37,8 @@ services:
     environment:
       HOST: "0.0.0.0"
       PAPERCLIP_HOME: /paperclip
+      # opencode CLI (shipped in the Paperclip image) needs writable XDG dirs.
+      XDG_CACHE_HOME: /tmp/opencode-cache
       # Match the container user to your host UID/GID so the persisted data
       # stays writable (the image entrypoint adjusts its `node` user on start).
       USER_UID: ${PUID:-1000}
